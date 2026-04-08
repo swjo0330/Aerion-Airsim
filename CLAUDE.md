@@ -38,8 +38,8 @@
 
 ### Phase 4: ArduPilot(APM) SITL 구축
 - [x] 4.1 settings.json에서 VehicleType → "ArduCopter" 전환 — apm_dual.json 생성 완료
-- [ ] 4.2 ArduPilot SITL 기동 (`sim_vehicle.py -f airsim-copter`)
-- [ ] 4.3 APM 2대 멀티비클 검증
+- [x] 4.2 ArduPilot 설치 + 빌드 완료 (~/ardupilot, ArduCopter SITL)
+- [x] 4.3 APM SITL ↔ Colosseum 연결 성공 — 바이너리 직접 실행 + --serial0 udpclient
 - [ ] 4.4 원격 MAVROS와 MAVLink 연동 확인
 
 ### Phase 5: 도시 환경 + 장애물 배치
