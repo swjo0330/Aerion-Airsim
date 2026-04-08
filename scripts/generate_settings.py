@@ -31,6 +31,7 @@ PORT_SCHEMES = {
             "NAV_RCL_ACT": 0,
             "NAV_DLL_ACT": 0,
             "COM_OBL_ACT": 1,
+            "MAV_0_BROADCAST": 1,  # 원격 MAVROS 연결 허용 (localhost 제한 해제)
         },
     },
     "ardupilot": {
@@ -113,6 +114,11 @@ def generate_settings(firmware: str, num_drones: int, mavros_ip: str) -> dict:
         "SettingsVersion": 1.2,
         "SimMode": "Multirotor",
         "ClockType": scheme["clock_type"],
+        "SubWindows": [
+            {"WindowID": 0, "CameraName": "front_center", "ImageType": 0, "VehicleName": "Drone0", "Visible": True},
+            {"WindowID": 1, "CameraName": "front_center", "ImageType": 3, "VehicleName": "Drone0", "Visible": True},
+            {"WindowID": 2, "CameraName": "front_center", "ImageType": 0, "VehicleName": "Drone1", "Visible": True},
+        ],
         "Vehicles": {},
     }
 
