@@ -1,7 +1,7 @@
 {
   "SettingsVersion": 1.2,
   "SimMode": "Multirotor",
-  "ClockType": "SteppableClock",
+  "ClockType": "ScalableClock",
   "Vehicles": {
     "Drone0": {
       "VehicleType": "ArduCopter",
