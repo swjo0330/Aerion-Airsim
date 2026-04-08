@@ -35,7 +35,7 @@ PORT_SCHEMES = {
     },
     "ardupilot": {
         "vehicle_type": "ArduCopter",
-        "clock_type": "SteppableClock",
+        "clock_type": "ScalableClock",
         "base_ports": {
             "UdpPort": 9003,            # 센서 데이터 (Colosseum → ArduPilot)
             "ControlPortLocal": 9002,    # 모터 제어 (ArduPilot → Colosseum)
