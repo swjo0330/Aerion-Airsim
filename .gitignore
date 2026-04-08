@@ -1,5 +1,20 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
 *.egg-info/
 .env
+
+# 대용량 외부 프로젝트 (별도 clone 필요)
+Colosseum/
+PX4-Autopilot/
+unreal-engine/
+
+# ROS2 빌드 결과물
+build/
+install/
+log/
+
+# 임시 파일
+*.log
+/tmp/

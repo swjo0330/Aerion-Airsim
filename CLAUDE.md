@@ -6,38 +6,38 @@
 - OS: Ubuntu 22.04.5 LTS
 - UE 5.6.1: `/home/clrobur/airsim/unreal-engine/` (설치완료)
 - GPU: NVIDIA (Driver 580, CUDA 13.0)
-- Colosseum: `main` 브랜치 (UE 5.6 지원) -- 아직 미설치
-- 컴파일러: clang-18 필요 (setup.sh는 clang-12 설치하지만 build.sh는 clang-18 사용) -- 아직 미설치
-- Python: 3.12+ 필요 (현재 3.10, 업그레이드 필요) -- 아직 미설치
+- Colosseum: `main` 브랜치 (UE 5.6 지원) -- 빌드완료 (libAirLib.a 생성됨)
+- 컴파일러: clang-18 설치완료 (Ubuntu clang 18.1.8)
+- Python: 3.12.13 (CPython, uv 관리) -- `.venv/` 에 설치완료 (uv 0.10.12)
 - cmake: 설치됨 (`/usr/bin/cmake`)
 - uv: 설치됨 (`/home/clrobur/.local/bin/uv`) -- Python 가상환경/패키지 관리에 활용 가능
 
 ## 구축 작업 항목
 
 ### Phase 1: 기반 설치
-- [ ] 1.1 clang-18, libc++-18-dev 설치 (LLVM apt repo)
-- [ ] 1.2 Python 3.12+ 설치 (deadsnakes PPA)
-- [ ] 1.3 Colosseum clone → setup.sh → build.sh
-- [ ] 1.4 PX4-Autopilot clone → `make px4_sitl_default none_iris`
-- [ ] 1.5 airsim Python 패키지 설치 (`Colosseum/PythonClient`)
+- [x] 1.1 clang-18, libc++-18-dev 설치 (Ubuntu clang 18.1.8 확인됨)
+- [x] 1.2 Python 3.12+ 설치 (uv venv, CPython 3.12.13 확인됨)
+- [x] 1.3 Colosseum clone → setup.sh → build.sh (libAirLib.a 생성 확인됨)
+- [x] 1.4 PX4-Autopilot clone → `make px4_sitl_default none_iris` (px4 바이너리 확인됨)
+- [x] 1.5 airsim Python 패키지 설치 (airsim 1.8.1, editable install 확인됨)
 
 ### Phase 2: PX4 SITL 2대 시뮬레이션 검증
-- [ ] 2.1 settings.json 구성 (2x PX4Multirotor, SysID 1/2, UDP 14555/14556)
-- [ ] 2.2 BlocksV2.uproject EngineAssociation → "5.6" 수정
-- [ ] 2.3 UE 에디터 + BlocksV2 실행
-- [ ] 2.4 PX4 SITL 2개 인스턴스 기동 (instance 0, 1)
-- [ ] 2.5 드론 스폰 + PX4 연결 확인
-- [ ] 2.6 원격 MAVROS에서 MAVLink 수신 확인
+- [x] 2.1 settings.json 구성 (px4_dual.json 생성 확인됨, launch 스크립트 2개 존재)
+- [x] 2.2 BlocksV2.uproject EngineAssociation → "5.6" 확인됨
+- [x] 2.3 UE 에디터 + BlocksV2 실행 — C++ 빌드 성공, GUI 정상 표시
+- [x] 2.4 PX4 SITL 2개 인스턴스 기동 — TCP 4560/4561 연결 확인 (PX4_SIM_MODEL=none_iris 필수)
+- [x] 2.5 드론 스폰 + PX4 연결 확인 — 2대 스폰, API 제어/이륙/이동 성공
+- [ ] 2.6 원격 MAVROS에서 MAVLink 수신 확인 (LocalHostIp 변경 후 테스트 필요)
 
 ### Phase 3: Python ROS2 브릿지
-- [ ] 3.1 Python 브릿지 노드 구현 (rclpy + airsim client)
-- [ ] 3.2 /camera/image 토픽 발행 (simGetImages)
-- [ ] 3.3 /camera/camera_info 토픽 발행 (FOV → intrinsics 변환)
-- [ ] 3.4 드론 제어 토픽 구독 → airsim API 연동
-- [ ] 3.5 원격 embodied-drone 노드와 통합 테스트
+- [x] 3.1 Python 브릿지 노드 구현 (rclpy + airsim client) — colcon 빌드 완료
+- [x] 3.2 /camera/image 토픽 발행 — 1280x720 RGB 정상 발행 확인 (10fps)
+- [x] 3.3 /camera/camera_info 토픽 발행 — K=[641,0,640,0,641,360,0,0,1], plumb_bob 확인
+- [x] 3.4 드론 제어 토픽 구독 → airsim API 연동 — cmd_vel, cmd_pos 수신 대기 확인
+- [ ] 3.5 원격 embodied-drone 노드와 통합 테스트 (ROS2 DDS 네트워크 설정 필요)
 
 ### Phase 4: ArduPilot(APM) SITL 구축
-- [ ] 4.1 settings.json에서 VehicleType → "ArduCopter" 전환
+- [x] 4.1 settings.json에서 VehicleType → "ArduCopter" 전환 — apm_dual.json 생성 완료
 - [ ] 4.2 ArduPilot SITL 기동 (`sim_vehicle.py -f airsim-copter`)
 - [ ] 4.3 APM 2대 멀티비클 검증
 - [ ] 4.4 원격 MAVROS와 MAVLink 연동 확인
@@ -64,11 +64,12 @@
 | MAV_SYS_ID | 1 | 2 |
 
 ### APM SITL 2대 (Phase 4)
-| 용도 | Drone0 | Drone1 |
+| 용도 | Drone0 (instance 0) | Drone1 (instance 1) |
 |------|--------|--------|
-| Sensor UDP | 9003 | 9005 |
-| Control UDP | 9002 | 9004 |
-| MAVLink→MAVROS UDP | 14555 | 14556 |
+| Sensor UDP (UdpPort) | 9003 | 9013 |
+| Control UDP (ControlPortLocal) | 9002 | 9012 |
+| MAVLink→MAVROS UDP (--out) | 14555 | 14556 |
+| 참고: ArduPilot --instance N은 포트에 N*10 오프셋 적용 | | |
 
 ## 참고 문서
 - Colosseum repo: https://github.com/CodexLabsLLC/Colosseum
