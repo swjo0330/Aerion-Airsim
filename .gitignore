@@ -8,7 +8,11 @@ __pycache__/
 # 대용량 외부 프로젝트 (별도 clone 필요)
 Colosseum/
 PX4-Autopilot/
-unreal-engine/
+
+# Unreal Engine (README만 유지, 엔진 바이너리 제외)
+unreal-engine/*
+!unreal-engine/.gitkeep
+!unreal-engine/README.md
 
 # ROS2 빌드 결과물
 build/
