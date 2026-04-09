@@ -61,6 +61,7 @@
         "NAV_RCL_ACT": 0,
         "NAV_DLL_ACT": 0,
         "COM_OBL_ACT": 1,
+        "MAV_0_BROADCAST": 1,
         "MAV_SYS_ID": 1
       }
     },
@@ -99,6 +100,7 @@
         "NAV_RCL_ACT": 0,
         "NAV_DLL_ACT": 0,
         "COM_OBL_ACT": 1,
+        "MAV_0_BROADCAST": 1,
         "MAV_SYS_ID": 2
       }
     }
