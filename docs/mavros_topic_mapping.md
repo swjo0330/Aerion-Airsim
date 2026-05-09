@@ -27,6 +27,14 @@ The current verified setup is:
 
 ## Verified bridge launch
 
+Use the helper script when running from the verified WSL workspace:
+
+```bash
+~/aerion_ros2_ws/src/airsim_ros2_bridge/scripts/run_airsim_ros2_bridge.sh
+```
+
+The equivalent explicit command is:
+
 ```bash
 cd ~/aerion_ros2_ws
 source /opt/ros/humble/setup.bash
@@ -134,6 +142,12 @@ This mode integrates incoming velocity commands over `velocity_command_duration`
 
 ## Smoke tests
 
+Use the helper script for the full RPC, topic, and motion smoke test:
+
+```bash
+~/aerion_ros2_ws/src/airsim_ros2_bridge/scripts/smoke_airsim_ros2_bridge.sh
+```
+
 Check AirSim RPC:
 
 ```bash
@@ -166,14 +180,33 @@ Expected result:
 - `/ap/twist/filtered` reports the latest command velocity.
 - `/ap/status` continues to publish.
 
+## Control-loop probe
+
+The package includes a minimal compatibility probe that consumes `/ap/pose/filtered` and publishes `/ap/cmd_vel`.
+It is intended to validate the same contract that the Aerion control or mission node should use:
+
+```bash
+cd ~/aerion_ros2_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+ros2 run airsim_ros2_bridge ap_pose_cmdvel_probe --ros-args \
+  -p target_dx:=0.2 \
+  -p target_dy:=0.0 \
+  -p tolerance:=0.12 \
+  -p max_duration_sec:=90.0 \
+  -p max_speed:=0.25
+```
+
+The probe commands only after a fresh pose message arrives. This avoids repeatedly commanding from stale state when AirSim RPC or ROS discovery is slow.
+
 ## Deferred work
 
 Do not block control-loop integration on these items:
 
+- Replacing the probe with the production Aerion control or mission node.
 - Camera publisher recovery.
 - Full MAVROS topic parity.
 - Full ArduPilot message parity for `/ap/status`.
 - PX4 SITL settings validation.
 - Zenoh or cross-machine DDS tuning.
-
-The next practical step is to attach the existing Aerion control or mission node that publishes `/ap/cmd_vel` and consumes `/ap/pose/filtered`.

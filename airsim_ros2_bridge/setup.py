@@ -15,6 +15,7 @@ setup(
     entry_points={
         'console_scripts': [
             'bridge_node = airsim_ros2_bridge.bridge_node:main',
+            'ap_pose_cmdvel_probe = airsim_ros2_bridge.ap_pose_cmdvel_probe:main',
         ],
     },
 )
