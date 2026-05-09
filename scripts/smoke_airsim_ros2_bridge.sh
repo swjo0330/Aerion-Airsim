@@ -7,7 +7,7 @@ AIRSIM_IP="${AIRSIM_IP:-172.23.80.1}"
 AIRSIM_PORT="${AIRSIM_PORT:-41451}"
 AIRSIM_TIMEOUT_SEC="${AIRSIM_TIMEOUT_SEC:-2.0}"
 VEHICLE_NAME="${VEHICLE_NAME:-Drone0}"
-ROS_TOPIC_TIMEOUT="${ROS_TOPIC_TIMEOUT:-20}"
+ROS_TOPIC_TIMEOUT="${ROS_TOPIC_TIMEOUT:-30}"
 MOVE_SPEED_X="${MOVE_SPEED_X:-0.5}"
 MOVE_DURATION_SEC="${MOVE_DURATION_SEC:-1.0}"
 MIN_MOVE_DELTA="${MIN_MOVE_DELTA:-0.05}"
@@ -33,6 +33,7 @@ set -u
 if [ "$RESET_ROS_DAEMON" = "true" ]; then
     ros2 daemon stop || true
     ros2 daemon start
+    sleep 3
 fi
 
 pose_xyz() {
@@ -66,6 +67,33 @@ head -n 20 /tmp/aerion_ap_pose.txt
 echo "Checking /ap/twist/filtered..."
 timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/twist/filtered >/tmp/aerion_ap_twist.txt
 head -n 20 /tmp/aerion_ap_twist.txt
+
+echo "Checking expanded MAVROS/Aerion compatibility topics..."
+while read -r topic msg_type; do
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once "$topic" "$msg_type" >/tmp/aerion_topic_check.txt
+    echo "OK: $topic"
+done <<'TOPICS'
+/ap/navsat sensor_msgs/msg/NavSatFix
+/ap/imu/experimental/data sensor_msgs/msg/Imu
+/ap/battery sensor_msgs/msg/BatteryState
+/mavros/local_position/odom nav_msgs/msg/Odometry
+/mavros/local_position/velocity_local geometry_msgs/msg/TwistStamped
+/mavros/global_position/global sensor_msgs/msg/NavSatFix
+/mavros/global_position/rel_alt std_msgs/msg/Float64
+/mavros/imu/data sensor_msgs/msg/Imu
+/mavros/battery sensor_msgs/msg/BatteryState
+/odometry nav_msgs/msg/Odometry
+/imu sensor_msgs/msg/Imu
+/navsat sensor_msgs/msg/NavSatFix
+/battery sensor_msgs/msg/BatteryState
+TOPICS
+
+if ros2 interface show mavros_msgs/msg/State >/dev/null 2>&1; then
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros/state >/tmp/aerion_mavros_state.txt
+    echo "OK: /mavros/state"
+else
+    echo "SKIP: /mavros/state because mavros_msgs/msg/State is not installed"
+fi
 
 echo "Publishing /ap/cmd_vel..."
 publish_count="$(python3 - "$MOVE_DURATION_SEC" <<'PY'

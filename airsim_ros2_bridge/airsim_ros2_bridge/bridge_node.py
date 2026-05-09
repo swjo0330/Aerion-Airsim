@@ -23,6 +23,9 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('airsim_ip', '127.0.0.1')
         self.declare_parameter('airsim_port', 41451)
         self.declare_parameter('airsim_timeout_sec', 2.0)
+        self.declare_parameter('home_latitude', 37.5665)
+        self.declare_parameter('home_longitude', 126.9780)
+        self.declare_parameter('home_altitude', 0.0)
 
         vehicle_names = self.get_parameter('vehicle_names').get_parameter_value().string_array_value
         camera_name = self.get_parameter('camera_name').get_parameter_value().string_value
@@ -38,6 +41,9 @@ class AirSimBridgeNode(Node):
         airsim_ip = self.get_parameter('airsim_ip').get_parameter_value().string_value
         airsim_port = self.get_parameter('airsim_port').get_parameter_value().integer_value
         airsim_timeout_sec = self.get_parameter('airsim_timeout_sec').get_parameter_value().double_value
+        home_latitude = self.get_parameter('home_latitude').get_parameter_value().double_value
+        home_longitude = self.get_parameter('home_longitude').get_parameter_value().double_value
+        home_altitude = self.get_parameter('home_altitude').get_parameter_value().double_value
 
         # Connect to AirSim
         self.get_logger().info(f'Connecting to AirSim at {airsim_ip}:{airsim_port}...')
@@ -79,6 +85,9 @@ class AirSimBridgeNode(Node):
                 velocity_control_mode=velocity_control_mode,
                 velocity_command_duration=velocity_command_duration,
                 kinematic_z_ned=kinematic_z_ned,
+                home_latitude=home_latitude,
+                home_longitude=home_longitude,
+                home_altitude=home_altitude,
             )
             self._drone_controllers.append(controller)
 
