@@ -47,8 +47,13 @@ c = airsim.MultirotorClient(ip=ip, port=port, timeout_value=timeout)
 with open("/dev/null", "w") as devnull, contextlib.redirect_stdout(devnull):
     c.confirmConnection()
 state = c.client.call("getMultirotorState", vehicle)
-pos = state[1][0]
-print(f"{pos[0]} {pos[1]} {pos[2]}")
+try:
+    pose = c.simGetVehiclePose(vehicle_name=vehicle)
+    print(f"{pose.position.x_val} {pose.position.y_val} {pose.position.z_val}")
+except Exception:
+    state = c.client.call("getMultirotorState", vehicle)
+    pos = state[1][0]
+    print(f"{pos[0]} {pos[1]} {pos[2]}")
 PY
 }
 

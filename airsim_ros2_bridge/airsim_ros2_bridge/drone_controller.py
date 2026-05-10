@@ -796,15 +796,18 @@ class DroneController:
         return response
 
     def _apply_kinematic_velocity(self, ned_x: float, ned_y: float, ned_z: float):
-        raw_state = self._client.client.call('getMultirotorState', self._vehicle_name)
-        kinematics = raw_state[1]
-        position = kinematics[0]
-        orientation_wxyz = kinematics[1]
+        position, orientation_xyzw, _ = self._get_vehicle_kinematics()
         duration = self._velocity_command_duration
         next_position = [
             position[0] + ned_x * duration,
             position[1] + ned_y * duration,
             self._kinematic_z_ned if ned_z == 0.0 else position[2] + ned_z * duration,
+        ]
+        orientation_wxyz = [
+            orientation_xyzw[3],
+            orientation_xyzw[0],
+            orientation_xyzw[1],
+            orientation_xyzw[2],
         ]
         self._client.client.call(
             'simSetVehiclePose',
@@ -1169,43 +1172,40 @@ class DroneController:
     ) -> tuple[tuple[float, float, float], tuple[float, float, float, float], tuple[float, float, float]]:
         """Return AirSim NED position, quaternion, and linear velocity."""
         try:
-            raw_state = self._client.client.call('getMultirotorState', self._vehicle_name)
-            if isinstance(raw_state, list):
-                kinematics = raw_state[1]
-                position = kinematics[0]
-                orientation_wxyz = kinematics[1]
-                linear_velocity = kinematics[2]
-                return (
-                    (position[0], position[1], position[2]),
-                    (
-                        orientation_wxyz[1],
-                        orientation_wxyz[2],
-                        orientation_wxyz[3],
-                        orientation_wxyz[0],
-                    ),
-                    (linear_velocity[0], linear_velocity[1], linear_velocity[2]),
-                )
+            # PX4 lockstep 환경에서는 getMultirotorState가 정체될 수 있어 pose는 simGetVehiclePose를 우선 사용한다.
+            pose = self._client.simGetVehiclePose(vehicle_name=self._vehicle_name)
+            position_ned = (pose.position.x_val, pose.position.y_val, pose.position.z_val)
+            orientation_xyzw = (
+                pose.orientation.x_val,
+                pose.orientation.y_val,
+                pose.orientation.z_val,
+                pose.orientation.w_val,
+            )
 
             state = self._client.getMultirotorState(vehicle_name=self._vehicle_name)
             kinematics = state.kinematics_estimated
-            position = kinematics.position
-            orientation = kinematics.orientation
             linear_velocity = kinematics.linear_velocity
             return (
-                (position.x_val, position.y_val, position.z_val),
-                (orientation.x_val, orientation.y_val, orientation.z_val, orientation.w_val),
+                position_ned,
+                orientation_xyzw,
                 (linear_velocity.x_val, linear_velocity.y_val, linear_velocity.z_val),
             )
-        except AttributeError:
-            state = self._client.getMultirotorState(vehicle_name=self._vehicle_name)
-            kinematics = state.kinematics_estimated
-            position = kinematics.position
-            orientation = kinematics.orientation
-            linear_velocity = kinematics.linear_velocity
+        except Exception:
+            # Fallback: 이전 raw state 경로 유지
+            raw_state = self._client.client.call('getMultirotorState', self._vehicle_name)
+            kinematics = raw_state[1]
+            position = kinematics[0]
+            orientation_wxyz = kinematics[1]
+            linear_velocity = kinematics[2]
             return (
-                (position.x_val, position.y_val, position.z_val),
-                (orientation.x_val, orientation.y_val, orientation.z_val, orientation.w_val),
-                (linear_velocity.x_val, linear_velocity.y_val, linear_velocity.z_val),
+                (position[0], position[1], position[2]),
+                (
+                    orientation_wxyz[1],
+                    orientation_wxyz[2],
+                    orientation_wxyz[3],
+                    orientation_wxyz[0],
+                ),
+                (linear_velocity[0], linear_velocity[1], linear_velocity[2]),
             )
 
     @staticmethod
