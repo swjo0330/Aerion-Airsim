@@ -2,6 +2,7 @@ import math
 
 import airsim
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist, TwistStamped, TwistWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState, Imu, NavSatFix, NavSatStatus
@@ -33,6 +34,7 @@ class DroneController:
         home_latitude: float = 37.5665,
         home_longitude: float = 126.9780,
         home_altitude: float = 0.0,
+        mavros_instance_namespace: str | None = None,
     ):
         self._node = node
         self._client = client
@@ -44,8 +46,15 @@ class DroneController:
         self._home_latitude = home_latitude
         self._home_longitude = home_longitude
         self._home_altitude = home_altitude
+        self._mavros_instance_namespace = mavros_instance_namespace
         self._velocity_command_count = 0
         self._last_velocity_enu = (0.0, 0.0, 0.0)
+        self._mavros_sensor_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+        )
 
         topic_prefix = f'/{vehicle_name}'
         mavros_prefix = f'{topic_prefix}/mavros'
@@ -167,6 +176,33 @@ class DroneController:
             if State is not None
             else None
         )
+
+        if mavros_instance_namespace:
+            mavros_instance_prefix = f'/{mavros_instance_namespace}'
+            self._mavros_instance_vel_sub = node.create_subscription(
+                Twist,
+                f'{mavros_instance_prefix}/setpoint_velocity/cmd_vel_unstamped',
+                self._mavros_cmd_vel_unstamped_callback,
+                10,
+            )
+            self._mavros_instance_vel_stamped_sub = node.create_subscription(
+                TwistStamped,
+                f'{mavros_instance_prefix}/setpoint_velocity/cmd_vel',
+                self._mavros_cmd_vel_stamped_callback,
+                10,
+            )
+            self._mavros_instance_pos_sub = node.create_subscription(
+                PoseStamped,
+                f'{mavros_instance_prefix}/setpoint_position/local',
+                self._mavros_cmd_pos_callback,
+                10,
+            )
+            self._mavros_instance_pubs = self._create_mavros_namespace_publishers(mavros_instance_prefix)
+        else:
+            self._mavros_instance_vel_sub = None
+            self._mavros_instance_vel_stamped_sub = None
+            self._mavros_instance_pos_sub = None
+            self._mavros_instance_pubs = None
 
         if enable_ardu_compat:
             self._ap_cmd_vel_sub = node.create_subscription(
@@ -382,6 +418,94 @@ class DroneController:
             node.get_logger().info(
                 f'[{vehicle_name}] ArduPilot compatibility enabled on /ap/* and /mavros/* aliases'
             )
+        if mavros_instance_namespace:
+            node.get_logger().info(
+                f'[{vehicle_name}] MAVROS instance aliases enabled on /{mavros_instance_namespace}/*'
+            )
+
+    def _create_mavros_namespace_publishers(self, prefix: str) -> dict:
+        return {
+            'pose': self._node.create_publisher(
+                PoseStamped,
+                f'{prefix}/local_position/pose',
+                self._mavros_sensor_qos,
+            ),
+            'odom': self._node.create_publisher(
+                Odometry,
+                f'{prefix}/local_position/odom',
+                self._mavros_sensor_qos,
+            ),
+            'pose_cov': self._node.create_publisher(
+                PoseWithCovarianceStamped,
+                f'{prefix}/local_position/pose_cov',
+                self._mavros_sensor_qos,
+            ),
+            'velocity_local': self._node.create_publisher(
+                TwistStamped,
+                f'{prefix}/local_position/velocity_local',
+                self._mavros_sensor_qos,
+            ),
+            'velocity_local_cov': self._node.create_publisher(
+                TwistWithCovarianceStamped,
+                f'{prefix}/local_position/velocity_local_cov',
+                self._mavros_sensor_qos,
+            ),
+            'velocity_body': self._node.create_publisher(
+                TwistStamped,
+                f'{prefix}/local_position/velocity_body',
+                self._mavros_sensor_qos,
+            ),
+            'velocity_body_cov': self._node.create_publisher(
+                TwistWithCovarianceStamped,
+                f'{prefix}/local_position/velocity_body_cov',
+                self._mavros_sensor_qos,
+            ),
+            'global': self._node.create_publisher(
+                NavSatFix,
+                f'{prefix}/global_position/global',
+                self._mavros_sensor_qos,
+            ),
+            'global_local': self._node.create_publisher(
+                Odometry,
+                f'{prefix}/global_position/local',
+                self._mavros_sensor_qos,
+            ),
+            'raw_fix': self._node.create_publisher(
+                NavSatFix,
+                f'{prefix}/global_position/raw/fix',
+                self._mavros_sensor_qos,
+            ),
+            'rel_alt': self._node.create_publisher(
+                Float64,
+                f'{prefix}/global_position/rel_alt',
+                self._mavros_sensor_qos,
+            ),
+            'compass_hdg': self._node.create_publisher(
+                Float64,
+                f'{prefix}/global_position/compass_hdg',
+                self._mavros_sensor_qos,
+            ),
+            'imu': self._node.create_publisher(
+                Imu,
+                f'{prefix}/imu/data',
+                self._mavros_sensor_qos,
+            ),
+            'imu_raw': self._node.create_publisher(
+                Imu,
+                f'{prefix}/imu/data_raw',
+                self._mavros_sensor_qos,
+            ),
+            'battery': self._node.create_publisher(
+                BatteryState,
+                f'{prefix}/battery',
+                self._mavros_sensor_qos,
+            ),
+            'state': (
+                self._node.create_publisher(State, f'{prefix}/state', 10)
+                if State is not None
+                else None
+            ),
+        }
 
     def _enable_vehicle_control(self):
         try:
@@ -560,6 +684,24 @@ class DroneController:
             if self._state_pub is not None and state_msg is not None:
                 self._state_pub.publish(state_msg)
 
+            if self._mavros_instance_pubs is not None:
+                self._publish_mavros_namespace(
+                    self._mavros_instance_pubs,
+                    msg,
+                    odom_msg,
+                    pose_cov_msg,
+                    velocity_local_msg,
+                    velocity_local_cov_msg,
+                    velocity_body_msg,
+                    velocity_body_cov_msg,
+                    navsat_msg,
+                    rel_alt_msg,
+                    compass_hdg_msg,
+                    imu_msg,
+                    battery_msg,
+                    state_msg,
+                )
+
             if self._enable_ardu_compat:
                 self._mavros_alias_pose_pub.publish(msg)
                 self._ap_pose_pub.publish(msg)
@@ -607,6 +749,41 @@ class DroneController:
             self._pose_warn_count += 1
             if self._pose_warn_count <= 5 or self._pose_warn_count % 100 == 0:
                 self._node.get_logger().warn(f'[{self._vehicle_name}] local_position error: {e}')
+
+    @staticmethod
+    def _publish_mavros_namespace(
+        publishers: dict,
+        pose_msg: PoseStamped,
+        odom_msg: Odometry,
+        pose_cov_msg: PoseWithCovarianceStamped,
+        velocity_local_msg: TwistStamped,
+        velocity_local_cov_msg: TwistWithCovarianceStamped,
+        velocity_body_msg: TwistStamped,
+        velocity_body_cov_msg: TwistWithCovarianceStamped,
+        navsat_msg: NavSatFix,
+        rel_alt_msg: Float64,
+        compass_hdg_msg: Float64,
+        imu_msg: Imu,
+        battery_msg: BatteryState,
+        state_msg,
+    ):
+        publishers['pose'].publish(pose_msg)
+        publishers['odom'].publish(odom_msg)
+        publishers['pose_cov'].publish(pose_cov_msg)
+        publishers['velocity_local'].publish(velocity_local_msg)
+        publishers['velocity_local_cov'].publish(velocity_local_cov_msg)
+        publishers['velocity_body'].publish(velocity_body_msg)
+        publishers['velocity_body_cov'].publish(velocity_body_cov_msg)
+        publishers['global'].publish(navsat_msg)
+        publishers['global_local'].publish(odom_msg)
+        publishers['raw_fix'].publish(navsat_msg)
+        publishers['rel_alt'].publish(rel_alt_msg)
+        publishers['compass_hdg'].publish(compass_hdg_msg)
+        publishers['imu'].publish(imu_msg)
+        publishers['imu_raw'].publish(imu_msg)
+        publishers['battery'].publish(battery_msg)
+        if publishers['state'] is not None and state_msg is not None:
+            publishers['state'].publish(state_msg)
 
     def _build_odometry_msg(
         self,

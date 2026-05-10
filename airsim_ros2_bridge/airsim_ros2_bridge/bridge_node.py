@@ -59,7 +59,7 @@ class AirSimBridgeNode(Node):
         self._camera_publishers = []
         self._drone_controllers = []
 
-        for vehicle_name in vehicle_names:
+        for index, vehicle_name in enumerate(vehicle_names):
             self.get_logger().info(f'Setting up {vehicle_name}...')
 
             if enable_camera:
@@ -88,6 +88,7 @@ class AirSimBridgeNode(Node):
                 home_latitude=home_latitude,
                 home_longitude=home_longitude,
                 home_altitude=home_altitude,
+                mavros_instance_namespace=f'mavros{index}',
             )
             self._drone_controllers.append(controller)
 

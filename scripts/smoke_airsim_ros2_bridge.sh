@@ -82,6 +82,12 @@ done <<'TOPICS'
 /mavros/global_position/rel_alt std_msgs/msg/Float64
 /mavros/imu/data sensor_msgs/msg/Imu
 /mavros/battery sensor_msgs/msg/BatteryState
+/mavros0/local_position/pose geometry_msgs/msg/PoseStamped
+/mavros0/imu/data sensor_msgs/msg/Imu
+/mavros0/global_position/global sensor_msgs/msg/NavSatFix
+/mavros1/local_position/pose geometry_msgs/msg/PoseStamped
+/mavros1/imu/data sensor_msgs/msg/Imu
+/mavros1/global_position/global sensor_msgs/msg/NavSatFix
 /odometry nav_msgs/msg/Odometry
 /imu sensor_msgs/msg/Imu
 /navsat sensor_msgs/msg/NavSatFix
@@ -91,8 +97,12 @@ TOPICS
 if ros2 interface show mavros_msgs/msg/State >/dev/null 2>&1; then
     timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros/state >/tmp/aerion_mavros_state.txt
     echo "OK: /mavros/state"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros0/state >/tmp/aerion_mavros0_state.txt
+    echo "OK: /mavros0/state"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros1/state >/tmp/aerion_mavros1_state.txt
+    echo "OK: /mavros1/state"
 else
-    echo "SKIP: /mavros/state because mavros_msgs/msg/State is not installed"
+    echo "SKIP: /mavros/state and /mavrosN/state because mavros_msgs/msg/State is not installed"
 fi
 
 echo "Publishing /ap/cmd_vel..."
