@@ -18,7 +18,7 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('enable_ardu_compat', True)
         self.declare_parameter('ardu_compat_vehicle', 'Drone0')
         self.declare_parameter('velocity_control_mode', 'kinematic')
-        self.declare_parameter('control_backend', 'airsim_direct')
+        self.declare_parameter('control_backend', 'px4_mavros')
         self.declare_parameter('velocity_command_duration', 0.2)
         self.declare_parameter('kinematic_z_ned', -1.0)
         self.declare_parameter('airsim_ip', '127.0.0.1')

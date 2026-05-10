@@ -12,7 +12,7 @@ MOVE_SPEED_X="${MOVE_SPEED_X:-0.5}"
 MOVE_DURATION_SEC="${MOVE_DURATION_SEC:-1.0}"
 MIN_MOVE_DELTA="${MIN_MOVE_DELTA:-0.05}"
 RESET_ROS_DAEMON="${RESET_ROS_DAEMON:-false}"
-CONTROL_BACKEND="${CONTROL_BACKEND:-airsim_direct}"
+CONTROL_BACKEND="${CONTROL_BACKEND:-px4_mavros}"
 
 if [ ! -f /opt/ros/humble/setup.bash ]; then
     echo "ERROR: ROS2 Humble setup not found at /opt/ros/humble/setup.bash" >&2

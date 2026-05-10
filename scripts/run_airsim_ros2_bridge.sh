@@ -10,6 +10,7 @@ ARDU_COMPAT_VEHICLE="${ARDU_COMPAT_VEHICLE:-Drone0}"
 ENABLE_CAMERA="${ENABLE_CAMERA:-false}"
 ENABLE_ARDU_COMPAT="${ENABLE_ARDU_COMPAT:-true}"
 VELOCITY_CONTROL_MODE="${VELOCITY_CONTROL_MODE:-kinematic}"
+CONTROL_BACKEND="${CONTROL_BACKEND:-px4_mavros}"
 VELOCITY_COMMAND_DURATION="${VELOCITY_COMMAND_DURATION:-0.2}"
 KINEMATIC_Z_NED="${KINEMATIC_Z_NED:--1.0}"
 
@@ -37,6 +38,7 @@ exec ros2 run airsim_ros2_bridge bridge_node --ros-args \
     -p enable_ardu_compat:="$ENABLE_ARDU_COMPAT" \
     -p ardu_compat_vehicle:="$ARDU_COMPAT_VEHICLE" \
     -p velocity_control_mode:="$VELOCITY_CONTROL_MODE" \
+    -p control_backend:="$CONTROL_BACKEND" \
     -p velocity_command_duration:="$VELOCITY_COMMAND_DURATION" \
     -p kinematic_z_ned:="$KINEMATIC_Z_NED" \
     -p airsim_timeout_sec:="$AIRSIM_TIMEOUT_SEC"
