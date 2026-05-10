@@ -20,6 +20,8 @@ class CameraPublisher:
         self._client = client
         self._vehicle_name = vehicle_name
         self._camera_name = camera_name
+        self._camera_candidates = self._build_camera_candidates(camera_name)
+        self._last_camera_error_ns = 0
 
         topic_prefix = f'/{vehicle_name}/camera'
         self._image_pub = node.create_publisher(Image, f'{topic_prefix}/image', 10)
@@ -27,11 +29,15 @@ class CameraPublisher:
 
         self._frame_id = f'{vehicle_name}_{camera_name}_optical'
 
+        # Resolve camera name first, then fetch FOV/size.
+        self._camera_name = self._resolve_camera_name(vehicle_name)
+        self._frame_id = f'{vehicle_name}_{self._camera_name}_optical'
+
         # Get camera info once (FOV from settings).
-        self._fov = self._safe_get_camera_fov(client, camera_name, vehicle_name)
+        self._fov = self._safe_get_camera_fov(client, self._camera_name, vehicle_name)
 
         # Get image dimensions from a test capture.
-        self._width, self._height = self._safe_get_image_size(client, camera_name, vehicle_name)
+        self._width, self._height = self._safe_get_image_size(client, self._camera_name, vehicle_name)
 
         node.get_logger().info(
             f'[{vehicle_name}] Camera: {self._width}x{self._height}, FOV={self._fov:.1f}'
@@ -41,9 +47,7 @@ class CameraPublisher:
 
     def _publish_callback(self):
         try:
-            responses = self._client.simGetImages([
-                airsim.ImageRequest(self._camera_name, airsim.ImageType.Scene, False, False)
-            ], vehicle_name=self._vehicle_name)
+            responses = self._get_images(self._camera_name, self._vehicle_name)
 
             if not responses:
                 return
@@ -65,15 +69,24 @@ class CameraPublisher:
             self._info_pub.publish(info_msg)
 
         except Exception as e:
-            self._node.get_logger().warn(f'[{self._vehicle_name}] Camera error: {e}')
+            now_ns = self._node.get_clock().now().nanoseconds
+            if now_ns - self._last_camera_error_ns > 5_000_000_000:
+                self._node.get_logger().warn(f'[{self._vehicle_name}] Camera error: {e}')
+                self._last_camera_error_ns = now_ns
 
     def _safe_get_camera_fov(self, client, camera_name: str, vehicle_name: str) -> float:
         try:
-            camera_info = client.simGetCameraInfo(camera_name, vehicle_name=vehicle_name)
+            camera_info = self._get_camera_info(camera_name, vehicle_name)
             if hasattr(camera_info, 'fov'):
                 return float(camera_info.fov)
             if isinstance(camera_info, dict) and 'fov' in camera_info:
                 return float(camera_info['fov'])
+            if isinstance(camera_info, list):
+                for item in camera_info:
+                    if isinstance(item, dict) and 'fov' in item:
+                        return float(item['fov'])
+                    if hasattr(item, 'fov'):
+                        return float(item.fov)
         except Exception as e:
             self._node.get_logger().warn(
                 f'[{vehicle_name}] CameraInfo fetch failed for {camera_name}; using fallback FOV: {e}'
@@ -82,9 +95,7 @@ class CameraPublisher:
 
     def _safe_get_image_size(self, client, camera_name: str, vehicle_name: str) -> tuple[int, int]:
         try:
-            test_response = client.simGetImages([
-                airsim.ImageRequest(camera_name, airsim.ImageType.Scene, False, False)
-            ], vehicle_name=vehicle_name)
+            test_response = self._get_images(camera_name, vehicle_name)
             if test_response:
                 r = self._normalize_response(test_response[0])
                 if r is not None and r.width > 0 and r.height > 0:
@@ -115,3 +126,46 @@ class CameraPublisher:
             wrapped.image_data_uint8 = image_data
             return wrapped
         return None
+
+    def _get_camera_info(self, camera_name: str, vehicle_name: str):
+        try:
+            return self._client.simGetCameraInfo(camera_name, vehicle_name=vehicle_name)
+        except Exception:
+            # Some AirSim forks reject vehicle_name for camera RPC.
+            return self._client.simGetCameraInfo(camera_name)
+
+    def _get_images(self, camera_name: str, vehicle_name: str):
+        req = [airsim.ImageRequest(camera_name, airsim.ImageType.Scene, False, False)]
+        try:
+            return self._client.simGetImages(req, vehicle_name=vehicle_name)
+        except Exception as first_error:
+            # Some AirSim forks reject vehicle_name for camera RPC.
+            try:
+                return self._client.simGetImages(req)
+            except Exception:
+                raise first_error
+
+    def _resolve_camera_name(self, vehicle_name: str) -> str:
+        for candidate in self._camera_candidates:
+            try:
+                responses = self._get_images(candidate, vehicle_name)
+                if responses:
+                    r = self._normalize_response(responses[0])
+                    if r is not None and r.width > 0 and r.height > 0:
+                        if candidate != self._camera_name:
+                            self._node.get_logger().info(
+                                f'[{vehicle_name}] Camera name fallback: {self._camera_name} -> {candidate}'
+                            )
+                        return candidate
+            except Exception:
+                continue
+        return self._camera_name
+
+    @staticmethod
+    def _build_camera_candidates(camera_name: str):
+        ordered = [camera_name, 'front_center', '0', '1']
+        dedup = []
+        for name in ordered:
+            if name not in dedup:
+                dedup.append(name)
+        return dedup
