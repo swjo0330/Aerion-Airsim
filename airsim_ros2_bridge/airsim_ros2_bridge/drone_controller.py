@@ -56,6 +56,7 @@ class DroneController:
         self._mavros_instance_namespace = mavros_instance_namespace
         self._velocity_command_count = 0
         self._last_velocity_enu = (0.0, 0.0, 0.0)
+        self._kinematic_noop_count = 0
         self._armed = True
         self._guided = True
         self._mode = 'GUIDED'
@@ -797,6 +798,7 @@ class DroneController:
 
     def _apply_kinematic_velocity(self, ned_x: float, ned_y: float, ned_z: float):
         position, orientation_xyzw, _ = self._get_vehicle_kinematics()
+        command_norm = math.sqrt(ned_x * ned_x + ned_y * ned_y + ned_z * ned_z)
         duration = self._velocity_command_duration
         next_position = [
             position[0] + ned_x * duration,
@@ -815,6 +817,32 @@ class DroneController:
             True,
             self._vehicle_name,
         )
+
+        updated_position, _, _ = self._get_vehicle_kinematics()
+        pose_delta = math.sqrt(
+            (updated_position[0] - position[0]) ** 2
+            + (updated_position[1] - position[1]) ** 2
+            + (updated_position[2] - position[2]) ** 2
+        )
+
+        if command_norm > 1e-3 and pose_delta < 1e-4:
+            self._kinematic_noop_count += 1
+        else:
+            self._kinematic_noop_count = 0
+
+        # AirSim/PX4 lockstep 환경에서 pose write가 간헐적으로 반영되지 않으면 velocity API로 폴백한다.
+        if self._kinematic_noop_count >= 3:
+            self._client.moveByVelocityAsync(
+                ned_x,
+                ned_y,
+                ned_z,
+                duration=self._velocity_command_duration,
+                vehicle_name=self._vehicle_name,
+            )
+            if self._kinematic_noop_count in (3, 10) or self._kinematic_noop_count % 50 == 0:
+                self._node.get_logger().warn(
+                    f'[{self._vehicle_name}] kinematic pose update stale; fallback moveByVelocityAsync'
+                )
 
     def _publish_local_pose(self):
         try:
