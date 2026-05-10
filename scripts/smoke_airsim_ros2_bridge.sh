@@ -105,6 +105,34 @@ else
     echo "SKIP: /mavros/state and /mavrosN/state because mavros_msgs/msg/State is not installed"
 fi
 
+if ros2 interface show mavros_msgs/msg/ExtendedState >/dev/null 2>&1; then
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros0/extended_state >/tmp/aerion_mavros0_extended_state.txt
+    echo "OK: /mavros0/extended_state"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros1/extended_state >/tmp/aerion_mavros1_extended_state.txt
+    echo "OK: /mavros1/extended_state"
+else
+    echo "SKIP: /mavrosN/extended_state because mavros_msgs/msg/ExtendedState is not installed"
+fi
+
+if ros2 interface show mavros_msgs/srv/CommandBool >/dev/null 2>&1 && ros2 interface show mavros_msgs/srv/SetMode >/dev/null 2>&1; then
+    for service_name in \
+        /Drone0/mavros/cmd/arming /Drone0/mavros/set_mode \
+        /Drone1/mavros/cmd/arming /Drone1/mavros/set_mode \
+        /mavros0/cmd/arming /mavros0/set_mode \
+        /mavros1/cmd/arming /mavros1/set_mode \
+        /mavros/cmd/arming /mavros/set_mode
+    do
+        if ros2 service list | grep -Fx "$service_name" >/dev/null 2>&1; then
+            echo "OK: $service_name"
+        else
+            echo "ERROR: missing service $service_name" >&2
+            exit 1
+        fi
+    done
+else
+    echo "SKIP: MAVROS service checks because mavros_msgs srv types are not installed"
+fi
+
 echo "Publishing /ap/cmd_vel..."
 publish_count="$(python3 - "$MOVE_DURATION_SEC" <<'PY'
 import math

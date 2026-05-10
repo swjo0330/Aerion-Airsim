@@ -11,8 +11,13 @@ from rosgraph_msgs.msg import Clock
 
 try:
     from mavros_msgs.msg import State
+    from mavros_msgs.msg import ExtendedState
+    from mavros_msgs.srv import CommandBool, SetMode
 except ImportError:
     State = None
+    ExtendedState = None
+    CommandBool = None
+    SetMode = None
 
 
 class DroneController:
@@ -49,6 +54,9 @@ class DroneController:
         self._mavros_instance_namespace = mavros_instance_namespace
         self._velocity_command_count = 0
         self._last_velocity_enu = (0.0, 0.0, 0.0)
+        self._armed = True
+        self._guided = True
+        self._mode = 'GUIDED'
         self._mavros_sensor_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=10,
@@ -176,6 +184,12 @@ class DroneController:
             if State is not None
             else None
         )
+        self._extended_state_pub = (
+            node.create_publisher(ExtendedState, f'{mavros_prefix}/extended_state', 10)
+            if ExtendedState is not None
+            else None
+        )
+        self._mavros_services = self._create_mavros_services(mavros_prefix)
 
         if mavros_instance_namespace:
             mavros_instance_prefix = f'/{mavros_instance_namespace}'
@@ -198,11 +212,13 @@ class DroneController:
                 10,
             )
             self._mavros_instance_pubs = self._create_mavros_namespace_publishers(mavros_instance_prefix)
+            self._mavros_instance_services = self._create_mavros_services(mavros_instance_prefix)
         else:
             self._mavros_instance_vel_sub = None
             self._mavros_instance_vel_stamped_sub = None
             self._mavros_instance_pos_sub = None
             self._mavros_instance_pubs = None
+            self._mavros_instance_services = None
 
         if enable_ardu_compat:
             self._ap_cmd_vel_sub = node.create_subscription(
@@ -369,6 +385,12 @@ class DroneController:
                 if State is not None
                 else None
             )
+            self._mavros_alias_extended_state_pub = (
+                node.create_publisher(ExtendedState, '/mavros/extended_state', 10)
+                if ExtendedState is not None
+                else None
+            )
+            self._mavros_alias_services = self._create_mavros_services('/mavros')
         else:
             self._ap_cmd_vel_sub = None
             self._mavros_alias_vel_sub = None
@@ -402,6 +424,8 @@ class DroneController:
             self._mavros_alias_imu_raw_pub = None
             self._mavros_alias_battery_pub = None
             self._mavros_alias_state_pub = None
+            self._mavros_alias_extended_state_pub = None
+            self._mavros_alias_services = None
 
         self._pose_warn_count = 0
         self._pose_timer = node.create_timer(0.1, self._publish_local_pose)
@@ -505,6 +529,27 @@ class DroneController:
                 if State is not None
                 else None
             ),
+            'extended_state': (
+                self._node.create_publisher(ExtendedState, f'{prefix}/extended_state', 10)
+                if ExtendedState is not None
+                else None
+            ),
+        }
+
+    def _create_mavros_services(self, prefix: str) -> dict | None:
+        if CommandBool is None or SetMode is None:
+            return None
+        return {
+            'arming': self._node.create_service(
+                CommandBool,
+                f'{prefix}/cmd/arming',
+                self._mavros_cmd_arming_callback,
+            ),
+            'set_mode': self._node.create_service(
+                SetMode,
+                f'{prefix}/set_mode',
+                self._mavros_set_mode_callback,
+            ),
         }
 
     def _enable_vehicle_control(self):
@@ -607,6 +652,43 @@ class DroneController:
         except Exception as e:
             self._node.get_logger().warn(f'[{self._vehicle_name}] mavros setpoint_velocity error: {e}')
 
+    def _mavros_cmd_arming_callback(self, request, response):
+        desired_arm = bool(getattr(request, 'value', False))
+        ok = True
+        try:
+            self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+            self._client.armDisarm(desired_arm, vehicle_name=self._vehicle_name)
+            self._armed = desired_arm
+            self._guided = True
+            self._mode = 'GUIDED' if desired_arm else 'STANDBY'
+        except Exception as e:
+            ok = False
+            self._node.get_logger().warn(f'[{self._vehicle_name}] mavros cmd/arming error: {e}')
+
+        if hasattr(response, 'success'):
+            response.success = ok
+        if hasattr(response, 'result'):
+            response.result = 0 if ok else 1
+        return response
+
+    def _mavros_set_mode_callback(self, request, response):
+        custom_mode = getattr(request, 'custom_mode', '') or ''
+        base_mode = getattr(request, 'base_mode', 0)
+        requested_mode = custom_mode if custom_mode else f'BASE_{base_mode}'
+
+        ok = True
+        try:
+            self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+            self._guided = True
+            self._mode = requested_mode.upper()
+        except Exception as e:
+            ok = False
+            self._node.get_logger().warn(f'[{self._vehicle_name}] mavros set_mode error: {e}')
+
+        if hasattr(response, 'mode_sent'):
+            response.mode_sent = ok
+        return response
+
     def _apply_kinematic_velocity(self, ned_x: float, ned_y: float, ned_z: float):
         raw_state = self._client.client.call('getMultirotorState', self._vehicle_name)
         kinematics = raw_state[1]
@@ -660,6 +742,7 @@ class DroneController:
             imu_msg = self._build_imu_msg(msg)
             battery_msg = self._build_battery_msg(msg)
             state_msg = self._build_state_msg()
+            extended_state_msg = self._build_extended_state_msg(msg)
             clock_msg = Clock()
             clock_msg.clock = msg.header.stamp
             rel_alt_msg = Float64()
@@ -683,6 +766,8 @@ class DroneController:
             self._battery_pub.publish(battery_msg)
             if self._state_pub is not None and state_msg is not None:
                 self._state_pub.publish(state_msg)
+            if self._extended_state_pub is not None and extended_state_msg is not None:
+                self._extended_state_pub.publish(extended_state_msg)
 
             if self._mavros_instance_pubs is not None:
                 self._publish_mavros_namespace(
@@ -700,6 +785,7 @@ class DroneController:
                     imu_msg,
                     battery_msg,
                     state_msg,
+                    extended_state_msg,
                 )
 
             if self._enable_ardu_compat:
@@ -716,7 +802,7 @@ class DroneController:
                 status_msg = String()
                 status_msg.data = (
                     f'vehicle={self._vehicle_name};'
-                    f'api_control=true;armed=true;'
+                    f'api_control=true;armed={str(self._armed).lower()};'
                     f'velocity_control_mode={self._velocity_control_mode}'
                 )
                 self._ap_status_pub.publish(status_msg)
@@ -745,6 +831,8 @@ class DroneController:
                 self._mavros_alias_battery_pub.publish(battery_msg)
                 if self._mavros_alias_state_pub is not None and state_msg is not None:
                     self._mavros_alias_state_pub.publish(state_msg)
+                if self._mavros_alias_extended_state_pub is not None and extended_state_msg is not None:
+                    self._mavros_alias_extended_state_pub.publish(extended_state_msg)
         except Exception as e:
             self._pose_warn_count += 1
             if self._pose_warn_count <= 5 or self._pose_warn_count % 100 == 0:
@@ -766,6 +854,7 @@ class DroneController:
         imu_msg: Imu,
         battery_msg: BatteryState,
         state_msg,
+        extended_state_msg,
     ):
         publishers['pose'].publish(pose_msg)
         publishers['odom'].publish(odom_msg)
@@ -784,6 +873,8 @@ class DroneController:
         publishers['battery'].publish(battery_msg)
         if publishers['state'] is not None and state_msg is not None:
             publishers['state'].publish(state_msg)
+        if publishers['extended_state'] is not None and extended_state_msg is not None:
+            publishers['extended_state'].publish(extended_state_msg)
 
     def _build_odometry_msg(
         self,
@@ -900,14 +991,33 @@ class DroneController:
         msg = State()
         for field_name, value in (
             ('connected', True),
-            ('armed', True),
-            ('guided', True),
+            ('armed', self._armed),
+            ('guided', self._guided),
             ('manual_input', False),
-            ('mode', 'GUIDED'),
+            ('mode', self._mode),
             ('system_status', 4),
         ):
             if hasattr(msg, field_name):
                 setattr(msg, field_name, value)
+        return msg
+
+    def _build_extended_state_msg(self, pose_msg: PoseStamped):
+        if ExtendedState is None:
+            return None
+
+        msg = ExtendedState()
+        msg.header = pose_msg.header
+        up_m = pose_msg.pose.position.z
+        landed_state = (
+            getattr(ExtendedState, 'LANDED_STATE_ON_GROUND', 1)
+            if up_m <= 0.15
+            else getattr(ExtendedState, 'LANDED_STATE_IN_AIR', 2)
+        )
+
+        if hasattr(msg, 'landed_state'):
+            msg.landed_state = landed_state
+        if hasattr(msg, 'vtol_state'):
+            msg.vtol_state = getattr(ExtendedState, 'VTOL_STATE_UNDEFINED', 0)
         return msg
 
     @staticmethod
