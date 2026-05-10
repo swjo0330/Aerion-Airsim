@@ -57,6 +57,8 @@ class DroneController:
         self._velocity_command_count = 0
         self._last_velocity_enu = (0.0, 0.0, 0.0)
         self._kinematic_noop_count = 0
+        self._api_control_ready = False
+        self._api_control_retry_count = 0
         self._armed = True
         self._guided = True
         self._mode = 'GUIDED'
@@ -577,9 +579,30 @@ class DroneController:
         try:
             self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
             self._client.armDisarm(True, vehicle_name=self._vehicle_name)
+            self._api_control_ready = True
+            self._api_control_retry_count = 0
             self._node.get_logger().info(f'[{self._vehicle_name}] API control enabled and vehicle armed')
         except Exception as e:
+            self._api_control_ready = False
             self._node.get_logger().warn(f'[{self._vehicle_name}] API control/arm error: {e}')
+
+    def _ensure_api_control(self) -> bool:
+        if self._api_control_ready:
+            return True
+        try:
+            self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+            self._client.armDisarm(True, vehicle_name=self._vehicle_name)
+            self._api_control_ready = True
+            self._api_control_retry_count = 0
+            self._node.get_logger().info(f'[{self._vehicle_name}] API control reacquired')
+            return True
+        except Exception as e:
+            self._api_control_retry_count += 1
+            if self._api_control_retry_count <= 5 or self._api_control_retry_count % 20 == 0:
+                self._node.get_logger().warn(
+                    f'[{self._vehicle_name}] API control reacquire failed ({self._api_control_retry_count}): {e}'
+                )
+            return False
 
     def _cmd_vel_callback(self, msg: Twist):
         """Forward velocity command to AirSim.
@@ -646,6 +669,8 @@ class DroneController:
         enu: tuple[float, float, float] | None = None,
     ):
         try:
+            if not self._ensure_api_control():
+                return
             if enu is None:
                 self._last_velocity_enu = self._ned_to_enu(ned_x, ned_y, ned_z)
             self._velocity_command_count += 1
@@ -1152,7 +1177,7 @@ class DroneController:
         msg = State()
         for field_name, value in (
             ('connected', True),
-            ('armed', self._armed),
+            ('armed', self._armed and self._api_control_ready),
             ('guided', self._guided),
             ('manual_input', False),
             ('mode', self._mode),

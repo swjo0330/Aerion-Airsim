@@ -64,6 +64,10 @@ echo "Initial AirSim pose: $before_pose"
 echo "Checking /ap/status..."
 timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/status >/tmp/aerion_ap_status.txt
 cat /tmp/aerion_ap_status.txt
+if ! grep -q "api_control=true" /tmp/aerion_ap_status.txt; then
+    echo "ERROR: /ap/status does not report api_control=true" >&2
+    exit 1
+fi
 
 echo "Checking /ap/pose/filtered..."
 timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/pose/filtered >/tmp/aerion_ap_pose.txt
