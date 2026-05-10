@@ -199,3 +199,15 @@ Aerion-Airsim/
 - [PX4 SITL 설정](https://codexlabsllc.github.io/Colosseum/px4_sitl/)
 - [멀티비클 설정](https://codexlabsllc.github.io/Colosseum/px4_multi_vehicle/)
 - [이미지 API](https://codexlabsllc.github.io/Colosseum/image_apis/)
+## Validation Runbook (2026-05-10)
+
+For the currently verified WSL + PX4 + MAVROS flow, use:
+
+- [docs/bridge_validation_runbook.md](docs/bridge_validation_runbook.md)
+
+This runbook contains:
+
+1. Verified environment and network assumptions (Windows host + WSL Ubuntu-22.04)
+2. 3-terminal startup order (PX4 dual, MAVROS dual, ROS2 bridge)
+3. Validation commands and pass criteria (`/mavros0/state`, `/mavros1/state`, camera topics, smoke script)
+4. Known failure patterns and recovery steps (`getpwnam`, FastDDS SHM lock, AirSim RPC timeout, IOLoop re-entry)
