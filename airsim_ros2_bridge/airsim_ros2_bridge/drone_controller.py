@@ -578,20 +578,18 @@ class DroneController:
     def _enable_vehicle_control(self):
         try:
             self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
-            self._client.armDisarm(True, vehicle_name=self._vehicle_name)
             self._api_control_ready = True
             self._api_control_retry_count = 0
-            self._node.get_logger().info(f'[{self._vehicle_name}] API control enabled and vehicle armed')
+            self._node.get_logger().info(f'[{self._vehicle_name}] API control enabled')
         except Exception as e:
             self._api_control_ready = False
-            self._node.get_logger().warn(f'[{self._vehicle_name}] API control/arm error: {e}')
+            self._node.get_logger().warn(f'[{self._vehicle_name}] API control error: {e}')
 
     def _ensure_api_control(self) -> bool:
         if self._api_control_ready:
             return True
         try:
             self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
-            self._client.armDisarm(True, vehicle_name=self._vehicle_name)
             self._api_control_ready = True
             self._api_control_retry_count = 0
             self._node.get_logger().info(f'[{self._vehicle_name}] API control reacquired')
@@ -669,8 +667,8 @@ class DroneController:
         enu: tuple[float, float, float] | None = None,
     ):
         try:
-            if not self._ensure_api_control():
-                return
+            # API control 재시도는 하되, 실패해도 kinematic/pose 제어 시도는 계속한다.
+            self._ensure_api_control()
             if enu is None:
                 self._last_velocity_enu = self._ned_to_enu(ned_x, ned_y, ned_z)
             self._velocity_command_count += 1
