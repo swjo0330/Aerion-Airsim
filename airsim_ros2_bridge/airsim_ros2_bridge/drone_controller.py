@@ -12,11 +12,12 @@ from rosgraph_msgs.msg import Clock
 try:
     from mavros_msgs.msg import State
     from mavros_msgs.msg import ExtendedState
-    from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
+    from mavros_msgs.srv import CommandBool, CommandLong, CommandTOL, SetMode
 except ImportError:
     State = None
     ExtendedState = None
     CommandBool = None
+    CommandLong = None
     CommandTOL = None
     SetMode = None
 
@@ -563,6 +564,12 @@ class DroneController:
                 f'{prefix}/cmd/land',
                 self._mavros_cmd_land_callback,
             )
+        if CommandLong is not None:
+            services['command'] = self._node.create_service(
+                CommandLong,
+                f'{prefix}/cmd/command',
+                self._mavros_cmd_command_callback,
+            )
         return services
 
     def _enable_vehicle_control(self):
@@ -741,6 +748,53 @@ class DroneController:
             response.result = 0 if ok else 1
         return response
 
+    def _mavros_cmd_command_callback(self, request, response):
+        command = int(getattr(request, 'command', -1))
+        ok = True
+        result = 0
+        try:
+            if command == 400:  # MAV_CMD_COMPONENT_ARM_DISARM
+                arm_value = float(getattr(request, 'param1', 0.0))
+                desired_arm = arm_value >= 0.5
+                self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+                self._client.armDisarm(desired_arm, vehicle_name=self._vehicle_name)
+                self._armed = desired_arm
+                self._guided = True
+                self._mode = 'GUIDED' if desired_arm else 'STANDBY'
+            elif command == 22:  # MAV_CMD_NAV_TAKEOFF
+                self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+                self._client.armDisarm(True, vehicle_name=self._vehicle_name)
+                self._client.takeoffAsync(vehicle_name=self._vehicle_name).join()
+                self._armed = True
+                self._guided = True
+                self._mode = 'GUIDED'
+            elif command == 21:  # MAV_CMD_NAV_LAND
+                self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+                self._client.landAsync(vehicle_name=self._vehicle_name).join()
+                self._armed = False
+                self._guided = True
+                self._mode = 'LAND'
+            elif command == 176:  # MAV_CMD_DO_SET_MODE
+                custom_mode = str(getattr(request, 'param2', '')).strip()
+                self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+                self._guided = True
+                self._mode = custom_mode.upper() if custom_mode else 'GUIDED'
+            else:
+                ok = False
+                result = 3
+        except Exception as e:
+            ok = False
+            result = 1
+            self._node.get_logger().warn(
+                f'[{self._vehicle_name}] mavros cmd/command error (cmd={command}): {e}'
+            )
+
+        if hasattr(response, 'success'):
+            response.success = ok
+        if hasattr(response, 'result'):
+            response.result = result
+        return response
+
     def _apply_kinematic_velocity(self, ned_x: float, ned_y: float, ned_z: float):
         raw_state = self._client.client.call('getMultirotorState', self._vehicle_name)
         kinematics = raw_state[1]
@@ -788,8 +842,14 @@ class DroneController:
             pose_cov_msg = self._build_pose_cov_msg(msg)
             velocity_local_msg = self._build_twist_msg(msg, linear_velocity_enu, 'map')
             velocity_local_cov_msg = self._build_twist_cov_msg(msg, linear_velocity_enu, 'map')
-            velocity_body_msg = self._build_twist_msg(msg, linear_velocity_enu, 'base_link')
-            velocity_body_cov_msg = self._build_twist_cov_msg(msg, linear_velocity_enu, 'base_link')
+            velocity_body_enu = self._enu_world_to_body(
+                linear_velocity_enu[0],
+                linear_velocity_enu[1],
+                linear_velocity_enu[2],
+                msg.pose.orientation,
+            )
+            velocity_body_msg = self._build_twist_msg(msg, velocity_body_enu, 'base_link')
+            velocity_body_cov_msg = self._build_twist_cov_msg(msg, velocity_body_enu, 'base_link')
             navsat_msg = self._build_navsat_msg(msg)
             imu_msg = self._build_imu_msg(msg)
             battery_msg = self._build_battery_msg(msg)
@@ -987,6 +1047,24 @@ class DroneController:
         msg.twist.covariance[28] = 0.01
         msg.twist.covariance[35] = 0.01
         return msg
+
+    @staticmethod
+    def _enu_world_to_body(
+        enu_x: float,
+        enu_y: float,
+        enu_z: float,
+        orientation,
+    ) -> tuple[float, float, float]:
+        # Transform world ENU velocity into body frame using yaw-only rotation.
+        siny_cosp = 2.0 * (orientation.w * orientation.z + orientation.x * orientation.y)
+        cosy_cosp = 1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+        cos_yaw = math.cos(yaw)
+        sin_yaw = math.sin(yaw)
+        body_x = cos_yaw * enu_x + sin_yaw * enu_y
+        body_y = -sin_yaw * enu_x + cos_yaw * enu_y
+        body_z = enu_z
+        return body_x, body_y, body_z
 
     def _build_navsat_msg(self, pose_msg: PoseStamped) -> NavSatFix:
         msg = NavSatFix()
