@@ -133,6 +133,25 @@ else
     echo "SKIP: MAVROS service checks because mavros_msgs srv types are not installed"
 fi
 
+if ros2 interface show mavros_msgs/srv/CommandTOL >/dev/null 2>&1; then
+    for service_name in \
+        /Drone0/mavros/cmd/takeoff /Drone0/mavros/cmd/land \
+        /Drone1/mavros/cmd/takeoff /Drone1/mavros/cmd/land \
+        /mavros0/cmd/takeoff /mavros0/cmd/land \
+        /mavros1/cmd/takeoff /mavros1/cmd/land \
+        /mavros/cmd/takeoff /mavros/cmd/land
+    do
+        if ros2 service list | grep -Fx "$service_name" >/dev/null 2>&1; then
+            echo "OK: $service_name"
+        else
+            echo "ERROR: missing service $service_name" >&2
+            exit 1
+        fi
+    done
+else
+    echo "SKIP: takeoff/land service checks because mavros_msgs/srv/CommandTOL is not installed"
+fi
+
 echo "Publishing /ap/cmd_vel..."
 publish_count="$(python3 - "$MOVE_DURATION_SEC" <<'PY'
 import math

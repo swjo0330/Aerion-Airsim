@@ -12,11 +12,12 @@ from rosgraph_msgs.msg import Clock
 try:
     from mavros_msgs.msg import State
     from mavros_msgs.msg import ExtendedState
-    from mavros_msgs.srv import CommandBool, SetMode
+    from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
 except ImportError:
     State = None
     ExtendedState = None
     CommandBool = None
+    CommandTOL = None
     SetMode = None
 
 
@@ -539,7 +540,7 @@ class DroneController:
     def _create_mavros_services(self, prefix: str) -> dict | None:
         if CommandBool is None or SetMode is None:
             return None
-        return {
+        services = {
             'arming': self._node.create_service(
                 CommandBool,
                 f'{prefix}/cmd/arming',
@@ -551,6 +552,18 @@ class DroneController:
                 self._mavros_set_mode_callback,
             ),
         }
+        if CommandTOL is not None:
+            services['takeoff'] = self._node.create_service(
+                CommandTOL,
+                f'{prefix}/cmd/takeoff',
+                self._mavros_cmd_takeoff_callback,
+            )
+            services['land'] = self._node.create_service(
+                CommandTOL,
+                f'{prefix}/cmd/land',
+                self._mavros_cmd_land_callback,
+            )
+        return services
 
     def _enable_vehicle_control(self):
         try:
@@ -687,6 +700,45 @@ class DroneController:
 
         if hasattr(response, 'mode_sent'):
             response.mode_sent = ok
+        return response
+
+    def _mavros_cmd_takeoff_callback(self, request, response):
+        del request
+        ok = True
+        try:
+            self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+            self._client.armDisarm(True, vehicle_name=self._vehicle_name)
+            self._client.takeoffAsync(vehicle_name=self._vehicle_name).join()
+            self._armed = True
+            self._guided = True
+            self._mode = 'GUIDED'
+        except Exception as e:
+            ok = False
+            self._node.get_logger().warn(f'[{self._vehicle_name}] mavros cmd/takeoff error: {e}')
+
+        if hasattr(response, 'success'):
+            response.success = ok
+        if hasattr(response, 'result'):
+            response.result = 0 if ok else 1
+        return response
+
+    def _mavros_cmd_land_callback(self, request, response):
+        del request
+        ok = True
+        try:
+            self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
+            self._client.landAsync(vehicle_name=self._vehicle_name).join()
+            self._armed = False
+            self._guided = True
+            self._mode = 'LAND'
+        except Exception as e:
+            ok = False
+            self._node.get_logger().warn(f'[{self._vehicle_name}] mavros cmd/land error: {e}')
+
+        if hasattr(response, 'success'):
+            response.success = ok
+        if hasattr(response, 'result'):
+            response.result = 0 if ok else 1
         return response
 
     def _apply_kinematic_velocity(self, ned_x: float, ned_y: float, ned_z: float):
