@@ -2,13 +2,12 @@
 """펌웨어 유형과 드론 수에 따라 settings.json을 자동 생성.
 
 사용법:
-  python3 generate_settings.py --firmware px4 --drones 2 --mavros-ip 127.0.0.1
-  python3 generate_settings.py --firmware ardupilot --drones 2 --mavros-ip 192.168.1.100
+  python3 generate_settings.py --firmware px4 --drones 2 --mavros-ip 192.168.1.100 --local-ip 192.168.1.10
+  python3 generate_settings.py --firmware ardupilot --drones 2
   python3 generate_settings.py --firmware px4 --drones 3 --output settings/px4_triple.json
 """
 import argparse
 import json
-import sys
 
 
 # 펌웨어별 포트 스킴 정의
@@ -53,7 +52,13 @@ PORT_SCHEMES = {
 MAVROS_BASE_PORT = 14555
 
 
-def generate_vehicle(firmware: str, instance: int, mavros_ip: str, spacing: float = 5.0) -> dict:
+def generate_vehicle(
+    firmware: str,
+    instance: int,
+    mavros_ip: str,
+    local_ip: str,
+    spacing: float = 5.0,
+) -> dict:
     """단일 드론 설정 생성."""
     scheme = PORT_SCHEMES[firmware]
     offset = instance * scheme["port_offset"]
@@ -89,9 +94,10 @@ def generate_vehicle(firmware: str, instance: int, mavros_ip: str, spacing: floa
         else:
             vehicle[port_key] = base_port + offset
 
-    # PX4: MAVROS IP 설정
+    # PX4: MAVROS 원격 전송 설정
     if firmware == "px4":
-        vehicle["LocalHostIp"] = mavros_ip
+        vehicle["ControlIp"] = mavros_ip
+        vehicle["LocalHostIp"] = local_ip
         vehicle["Parameters"] = {
             **scheme["parameters"],
             "MAV_SYS_ID": instance + 1,
@@ -106,7 +112,7 @@ def generate_vehicle(firmware: str, instance: int, mavros_ip: str, spacing: floa
     return vehicle
 
 
-def generate_settings(firmware: str, num_drones: int, mavros_ip: str) -> dict:
+def generate_settings(firmware: str, num_drones: int, mavros_ip: str, local_ip: str) -> dict:
     """전체 settings.json 생성."""
     scheme = PORT_SCHEMES[firmware]
 
@@ -124,7 +130,7 @@ def generate_settings(firmware: str, num_drones: int, mavros_ip: str) -> dict:
 
     for i in range(num_drones):
         name = f"Drone{i}"
-        settings["Vehicles"][name] = generate_vehicle(firmware, i, mavros_ip)
+        settings["Vehicles"][name] = generate_vehicle(firmware, i, mavros_ip, local_ip)
 
     return settings
 
@@ -175,13 +181,15 @@ def main():
                         help="드론 수 (기본: 2)")
     parser.add_argument("--mavros-ip", default="127.0.0.1",
                         help="원격 MAVROS IP (기본: 127.0.0.1)")
+    parser.add_argument("--local-ip", default="127.0.0.1",
+                        help="시뮬레이션 머신의 로컬 IP (기본: 127.0.0.1)")
     parser.add_argument("--output", "-o", default=None,
                         help="출력 파일 경로 (기본: settings/<firmware>_<n>drones.json)")
     parser.add_argument("--deploy", "-d", action="store_true",
                         help="~/Documents/AirSim/settings.json에도 복사")
     args = parser.parse_args()
 
-    settings = generate_settings(args.firmware, args.drones, args.mavros_ip)
+    settings = generate_settings(args.firmware, args.drones, args.mavros_ip, args.local_ip)
 
     # 출력 파일 경로
     if args.output:
