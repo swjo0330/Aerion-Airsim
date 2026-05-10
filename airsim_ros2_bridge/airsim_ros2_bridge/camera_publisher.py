@@ -1,4 +1,5 @@
 import airsim
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
 
@@ -22,6 +23,7 @@ class CameraPublisher:
         self._camera_name = camera_name
         self._camera_candidates = self._build_camera_candidates(camera_name)
         self._last_camera_error_ns = 0
+        self._callback_group = ReentrantCallbackGroup()
 
         topic_prefix = f'/{vehicle_name}/camera'
         self._image_pub = node.create_publisher(Image, f'{topic_prefix}/image', 10)
@@ -43,7 +45,11 @@ class CameraPublisher:
             f'[{vehicle_name}] Camera: {self._width}x{self._height}, FOV={self._fov:.1f}'
         )
 
-        self._timer = node.create_timer(1.0 / publish_rate, self._publish_callback)
+        self._timer = node.create_timer(
+            1.0 / publish_rate,
+            self._publish_callback,
+            callback_group=self._callback_group,
+        )
 
     def _publish_callback(self):
         try:

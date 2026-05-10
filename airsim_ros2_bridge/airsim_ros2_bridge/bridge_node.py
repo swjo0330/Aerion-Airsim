@@ -1,9 +1,30 @@
 import rclpy
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 import airsim
+import threading
 
 from airsim_ros2_bridge.camera_publisher import CameraPublisher
 from airsim_ros2_bridge.drone_controller import DroneController
+
+
+class ThreadSafeAirSimClient:
+    """Serialize AirSim RPC calls across threads to avoid Tornado IOLoop re-entry."""
+
+    def __init__(self, client):
+        self._client = client
+        self._lock = threading.RLock()
+
+    def __getattr__(self, name):
+        attr = getattr(self._client, name)
+        if not callable(attr):
+            return attr
+
+        def locked_call(*args, **kwargs):
+            with self._lock:
+                return attr(*args, **kwargs)
+
+        return locked_call
 
 
 class AirSimBridgeNode(Node):
@@ -49,11 +70,12 @@ class AirSimBridgeNode(Node):
 
         # Connect to AirSim
         self.get_logger().info(f'Connecting to AirSim at {airsim_ip}:{airsim_port}...')
-        self._client = airsim.MultirotorClient(
+        raw_client = airsim.MultirotorClient(
             ip=airsim_ip,
             port=airsim_port,
             timeout_value=airsim_timeout_sec,
         )
+        self._client = ThreadSafeAirSimClient(raw_client)
         self._client.confirmConnection()
         self.get_logger().info('Connected to AirSim!')
 
@@ -101,11 +123,14 @@ class AirSimBridgeNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = AirSimBridgeNode()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
 
