@@ -12,6 +12,7 @@ MOVE_SPEED_X="${MOVE_SPEED_X:-0.5}"
 MOVE_DURATION_SEC="${MOVE_DURATION_SEC:-1.0}"
 MIN_MOVE_DELTA="${MIN_MOVE_DELTA:-0.05}"
 RESET_ROS_DAEMON="${RESET_ROS_DAEMON:-false}"
+CONTROL_BACKEND="${CONTROL_BACKEND:-airsim_direct}"
 
 if [ ! -f /opt/ros/humble/setup.bash ]; then
     echo "ERROR: ROS2 Humble setup not found at /opt/ros/humble/setup.bash" >&2
@@ -57,9 +58,27 @@ except Exception:
 PY
 }
 
+mavros_pose_xyz() {
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros0/local_position/pose >/tmp/aerion_mavros0_pose.txt
+    python3 - <<'PY'
+import re
+from pathlib import Path
+text = Path("/tmp/aerion_mavros0_pose.txt").read_text()
+vals = []
+for axis in ("x", "y", "z"):
+    m = re.search(rf"^\s*{axis}:\s*([-+0-9.eE]+)\s*$", text, flags=re.MULTILINE)
+    vals.append(float(m.group(1)) if m else 0.0)
+print(f"{vals[0]} {vals[1]} {vals[2]}")
+PY
+}
+
 echo "Checking AirSim RPC at ${AIRSIM_IP}:${AIRSIM_PORT} for ${VEHICLE_NAME}..."
 before_pose="$(pose_xyz)"
 echo "Initial AirSim pose: $before_pose"
+if [ "$CONTROL_BACKEND" = "px4_mavros" ]; then
+    before_mavros_pose="$(mavros_pose_xyz)"
+    echo "Initial MAVROS pose: $before_mavros_pose"
+fi
 
 echo "Checking /ap/status..."
 timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/status >/tmp/aerion_ap_status.txt
@@ -195,7 +214,17 @@ ros2 topic pub --times "$publish_count" -r 5 /ap/cmd_vel geometry_msgs/msg/Twist
 after_pose="$(pose_xyz)"
 echo "Final AirSim pose: $after_pose"
 
-python3 - "$before_pose" "$after_pose" "$MIN_MOVE_DELTA" <<'PY'
+if [ "$CONTROL_BACKEND" = "px4_mavros" ]; then
+    after_mavros_pose="$(mavros_pose_xyz)"
+    echo "Final MAVROS pose: $after_mavros_pose"
+    before_check_pose="$before_mavros_pose"
+    after_check_pose="$after_mavros_pose"
+else
+    before_check_pose="$before_pose"
+    after_check_pose="$after_pose"
+fi
+
+python3 - "$before_check_pose" "$after_check_pose" "$MIN_MOVE_DELTA" <<'PY'
 import math
 import sys
 

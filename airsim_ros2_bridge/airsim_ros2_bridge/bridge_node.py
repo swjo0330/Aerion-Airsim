@@ -18,6 +18,7 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('enable_ardu_compat', True)
         self.declare_parameter('ardu_compat_vehicle', 'Drone0')
         self.declare_parameter('velocity_control_mode', 'kinematic')
+        self.declare_parameter('control_backend', 'airsim_direct')
         self.declare_parameter('velocity_command_duration', 0.2)
         self.declare_parameter('kinematic_z_ned', -1.0)
         self.declare_parameter('airsim_ip', '127.0.0.1')
@@ -34,6 +35,7 @@ class AirSimBridgeNode(Node):
         enable_ardu_compat = self.get_parameter('enable_ardu_compat').get_parameter_value().bool_value
         ardu_compat_vehicle = self.get_parameter('ardu_compat_vehicle').get_parameter_value().string_value
         velocity_control_mode = self.get_parameter('velocity_control_mode').get_parameter_value().string_value
+        control_backend = self.get_parameter('control_backend').get_parameter_value().string_value
         velocity_command_duration = (
             self.get_parameter('velocity_command_duration').get_parameter_value().double_value
         )
@@ -83,6 +85,7 @@ class AirSimBridgeNode(Node):
                 vehicle_name=vehicle_name,
                 enable_ardu_compat=enable_ardu_compat and vehicle_name == ardu_compat_vehicle,
                 velocity_control_mode=velocity_control_mode,
+                control_backend=control_backend,
                 velocity_command_duration=velocity_command_duration,
                 kinematic_z_ned=kinematic_z_ned,
                 home_latitude=home_latitude,

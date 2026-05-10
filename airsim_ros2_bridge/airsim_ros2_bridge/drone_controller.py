@@ -36,6 +36,7 @@ class DroneController:
         vehicle_name: str,
         enable_ardu_compat: bool = False,
         velocity_control_mode: str = 'kinematic',
+        control_backend: str = 'airsim_direct',
         velocity_command_duration: float = 0.2,
         kinematic_z_ned: float = -1.0,
         home_latitude: float = 37.5665,
@@ -48,6 +49,7 @@ class DroneController:
         self._vehicle_name = vehicle_name
         self._enable_ardu_compat = enable_ardu_compat
         self._velocity_control_mode = velocity_control_mode
+        self._control_backend = control_backend if control_backend in ('airsim_direct', 'px4_mavros') else 'airsim_direct'
         self._velocity_command_duration = velocity_command_duration
         self._kinematic_z_ned = kinematic_z_ned
         self._home_latitude = home_latitude
@@ -195,6 +197,15 @@ class DroneController:
             else None
         )
         self._mavros_services = self._create_mavros_services(mavros_prefix)
+        self._px4_mavros_setpoint_pub = (
+            node.create_publisher(
+                Twist,
+                f'/{mavros_instance_namespace}/setpoint_velocity/cmd_vel_unstamped',
+                10,
+            )
+            if self._control_backend == 'px4_mavros' and mavros_instance_namespace
+            else None
+        )
 
         if mavros_instance_namespace:
             mavros_instance_prefix = f'/{mavros_instance_namespace}'
@@ -229,7 +240,7 @@ class DroneController:
             self._ap_cmd_vel_sub = node.create_subscription(
                 Twist,
                 '/ap/cmd_vel',
-                self._mavros_cmd_vel_unstamped_callback,
+                self._ap_cmd_vel_callback,
                 10,
             )
             self._mavros_alias_vel_sub = node.create_subscription(
@@ -441,6 +452,7 @@ class DroneController:
         node.get_logger().info(
             f'[{vehicle_name}] Velocity control mode={velocity_control_mode}, duration={velocity_command_duration:.2f}s'
         )
+        node.get_logger().info(f'[{vehicle_name}] Control backend={self._control_backend}')
         if velocity_control_mode == 'kinematic':
             node.get_logger().info(f'[{vehicle_name}] Kinematic altitude locked at NED z={kinematic_z_ned:.2f}')
         if enable_ardu_compat:
@@ -610,6 +622,13 @@ class DroneController:
         """
         self._send_velocity_ned(msg.linear.x, msg.linear.y, msg.linear.z, source='cmd_vel')
 
+    def _ap_cmd_vel_callback(self, msg: Twist):
+        if self._control_backend == 'px4_mavros' and self._px4_mavros_setpoint_pub is not None:
+            self._last_velocity_enu = (msg.linear.x, msg.linear.y, msg.linear.z)
+            self._px4_mavros_setpoint_pub.publish(msg)
+            return
+        self._mavros_cmd_vel_unstamped_callback(msg)
+
     def _cmd_pos_callback(self, msg: PoseStamped):
         """Forward position command to AirSim.
 
@@ -667,6 +686,8 @@ class DroneController:
         enu: tuple[float, float, float] | None = None,
     ):
         try:
+            if self._control_backend != 'airsim_direct':
+                return
             # API control 재시도는 하되, 실패해도 kinematic/pose 제어 시도는 계속한다.
             self._ensure_api_control()
             if enu is None:
