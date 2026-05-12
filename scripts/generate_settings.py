@@ -115,15 +115,15 @@ def generate_settings(firmware: str, num_drones: int, mavros_ip: str) -> dict:
         "SimMode": "Multirotor",
         "ClockType": scheme["clock_type"],
         "SubWindows": [
-            {"WindowID": 0, "CameraName": "front_center", "ImageType": 0, "VehicleName": "Drone0", "Visible": True},
-            {"WindowID": 1, "CameraName": "front_center", "ImageType": 3, "VehicleName": "Drone0", "Visible": True},
-            {"WindowID": 2, "CameraName": "front_center", "ImageType": 0, "VehicleName": "Drone1", "Visible": True},
+            {"WindowID": 0, "CameraName": "front_center", "ImageType": 0, "VehicleName": "uav0", "Visible": True},
+            {"WindowID": 1, "CameraName": "front_center", "ImageType": 3, "VehicleName": "uav0", "Visible": True},
+            {"WindowID": 2, "CameraName": "front_center", "ImageType": 0, "VehicleName": "uav1", "Visible": True},
         ],
         "Vehicles": {},
     }
 
     for i in range(num_drones):
-        name = f"Drone{i}"
+        name = f"uav{i}"
         settings["Vehicles"][name] = generate_vehicle(firmware, i, mavros_ip)
 
     return settings

@@ -1,0 +1,23 @@
+{
+  // 시뮬레이션 머신 zenoh 설정 (100.120.219.68)
+  // 원격 제어 머신 (100.67.87.116) 으로 연결
+
+  mode: "router",
+
+  listen: {
+    endpoints: ["tcp/100.120.219.68:7447"],
+  },
+
+  connect: {
+    endpoints: ["tcp/100.67.87.116:7447"],
+  },
+
+  scouting: {
+    multicast: {
+      enabled: false,
+    },
+    gossip: {
+      enabled: true,
+    },
+  },
+}

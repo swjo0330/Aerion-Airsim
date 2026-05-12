@@ -11,7 +11,7 @@ class AirSimBridgeNode(Node):
         super().__init__('airsim_bridge')
 
         # Parameters
-        self.declare_parameter('vehicle_names', ['Drone0', 'Drone1'])
+        self.declare_parameter('vehicle_names', ['uav0', 'uav1'])
         self.declare_parameter('camera_name', 'front_center')
         self.declare_parameter('camera_fps', 30.0)
         self.declare_parameter('airsim_ip', '127.0.0.1')
