@@ -1,0 +1,28 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: #eef3f8; color: #132235; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, textarea, input, select { font: inherit; }
+.page { max-width: 1440px; margin: 0 auto; padding: 28px; }
+.hero { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+.hero h1 { margin: 0 0 8px; font-size: 38px; letter-spacing: -0.04em; }
+.hero p { margin: 0; color: #5e6d7e; }
+.badge { padding: 8px 12px; border-radius: 999px; background: #102a43; color: #fff; font-weight: 700; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.card { background: rgba(255,255,255,0.9); border: 1px solid #d8e1eb; border-radius: 18px; box-shadow: 0 10px 30px rgba(15, 35, 60, .08); padding: 20px; }
+.card h2 { margin: 0 0 14px; font-size: 20px; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+textarea { width: 100%; min-height: 130px; resize: vertical; border: 1px solid #c8d6e5; border-radius: 12px; padding: 14px; background: #fff; }
+input, select { border: 1px solid #c8d6e5; border-radius: 12px; padding: 10px 12px; background: #fff; }
+button { border: 0; border-radius: 12px; padding: 12px 16px; background: #145da0; color: #fff; cursor: pointer; font-weight: 700; }
+button.secondary { background: #456; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: 10px; text-align: left; border-bottom: 1px solid #e5edf5; font-size: 14px; }
+.status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; background: #e7f5ef; color: #10703e; font-weight: 700; font-size: 12px; }
+.status.bad { background: #fff0f0; color: #bd1e1e; }
+pre { overflow: auto; white-space: pre-wrap; word-break: break-word; background: #0b1727; color: #d9e9ff; border-radius: 14px; padding: 14px; max-height: 580px; }
+.log { height: 300px; overflow: auto; background: #09111d; color: #d9e9ff; border-radius: 14px; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.log-line { margin: 0 0 8px; }
+.full { grid-column: 1 / -1; }
+.small { color: #687789; font-size: 13px; }
+@media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .hero { flex-direction: column; } }

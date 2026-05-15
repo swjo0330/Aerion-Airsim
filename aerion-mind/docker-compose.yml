@@ -1,0 +1,54 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: aerion-mind-backend
+    env_file: .env
+    environment:
+      MIND_HOST: 0.0.0.0
+      MIND_PORT: 8020
+      SOMA_DEFAULT_A2A_URL: http://mock-soma:8011
+      CORS_ORIGINS: http://localhost:3000,http://frontend:3000
+    ports:
+      - "8020:8020"
+    networks:
+      - aerion-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8020/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mock-soma:
+    build:
+      context: ./mock-soma
+    container_name: aerion-mock-soma
+    env_file: .env
+    environment:
+      MIND_BASE_URL: http://backend:8020
+      SOMA_PUBLIC_A2A_URL: http://mock-soma:8011
+      DRONE_ID: drone1
+    ports:
+      - "8011:8011"
+    networks:
+      - aerion-net
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: aerion-mind-frontend
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8020/api/v1
+    ports:
+      - "3000:3000"
+    networks:
+      - aerion-net
+    depends_on:
+      - backend
+
+networks:
+  aerion-net:
+    driver: bridge
