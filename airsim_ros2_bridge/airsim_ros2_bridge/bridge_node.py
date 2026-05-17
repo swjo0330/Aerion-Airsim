@@ -4,12 +4,23 @@ from rclpy.node import Node
 import airsim
 import threading
 
+# AERION 토픽 발행자 3종:
+#   CameraPublisher : RGB 카메라 (Phase 2 기본, 320x240 권장)
+#   RangePublisher  : 전/좌/우 거리센서 (Phase 2.2에서 추가, 충돌 회피용)
+#   DroneController : MAVROS 호환 토픽 + 명령 구독 + AirSim API 직접 제어
+# 1 드론 = 1 프로세스 패턴 (AirSim RPC IOLoop 경합 회피)
 from airsim_ros2_bridge.camera_publisher import CameraPublisher
 from airsim_ros2_bridge.drone_controller import DroneController
+from airsim_ros2_bridge.range_publisher import RangePublisher
 
 
 class ThreadSafeAirSimClient:
-    """Serialize AirSim RPC calls across threads to avoid Tornado IOLoop re-entry."""
+    """AirSim RPC 호출을 스레드 간 직렬화하여 Tornado IOLoop 재진입 회피.
+
+    배경: AirSim RPC 서버는 rpclib + Tornado 기반. 같은 client 인스턴스를 여러 스레드가
+    동시에 호출하면 'IOLoop is already running' 에러 (microsoft/AirSim#2607).
+    MultiThreadedExecutor로 여러 콜백이 병렬 실행되어도 RLock으로 RPC 자체는 직렬화.
+    """
 
     def __init__(self, client):
         self._client = client
@@ -39,8 +50,15 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('camera_name', 'front_center')
         self.declare_parameter('camera_fps', 30.0)
         self.declare_parameter('enable_camera', False)
-        self.declare_parameter('enable_ardu_compat', True)
-        self.declare_parameter('ardu_compat_vehicle', 'Drone0')
+        self.declare_parameter('enable_range', False)
+        self.declare_parameter('range_sensors', ['Distance_Front', 'Distance_Left', 'Distance_Right'])
+        self.declare_parameter('range_publish_rate', 20.0)
+        self.declare_parameter('range_field_of_view_rad', 0.035)
+        # enable_ardu_compat: ArduPilot DDS 토픽(/ap/*) 호환 alias 발행 여부.
+        # AERION Phase 2~5는 모두 SimpleFlight/PX4 기반이라 false 유지. Phase 7(별도 트랙) ArduPilot 통합 시에만 true.
+        self.declare_parameter('enable_ardu_compat', False)
+        # ardu_compat_vehicle: enable_ardu_compat=true일 때만 의미. vehicle key 통일 컨벤션(drone1..)에 맞춤.
+        self.declare_parameter('ardu_compat_vehicle', 'drone1')
         self.declare_parameter('velocity_control_mode', 'kinematic')
         self.declare_parameter('control_backend', 'px4_mavros')
         self.declare_parameter('velocity_command_duration', 0.2)
@@ -61,6 +79,10 @@ class AirSimBridgeNode(Node):
         camera_name = self.get_parameter('camera_name').get_parameter_value().string_value
         camera_fps = self.get_parameter('camera_fps').get_parameter_value().double_value
         enable_camera = self.get_parameter('enable_camera').get_parameter_value().bool_value
+        enable_range = self.get_parameter('enable_range').get_parameter_value().bool_value
+        range_sensors = self.get_parameter('range_sensors').get_parameter_value().string_array_value
+        range_publish_rate = self.get_parameter('range_publish_rate').get_parameter_value().double_value
+        range_field_of_view_rad = self.get_parameter('range_field_of_view_rad').get_parameter_value().double_value
         enable_ardu_compat = self.get_parameter('enable_ardu_compat').get_parameter_value().bool_value
         ardu_compat_vehicle = self.get_parameter('ardu_compat_vehicle').get_parameter_value().string_value
         velocity_control_mode = self.get_parameter('velocity_control_mode').get_parameter_value().string_value
@@ -96,6 +118,7 @@ class AirSimBridgeNode(Node):
 
         # Create camera publishers and controllers for each vehicle
         self._camera_publishers = []
+        self._range_publishers = []
         self._drone_controllers = []
 
         for spec in vehicle_specs:
@@ -115,6 +138,25 @@ class AirSimBridgeNode(Node):
                 except Exception as e:
                     self.get_logger().warn(
                         f'[{vehicle_name}] Camera publisher disabled after initialization error: {e}'
+                    )
+
+            # Range publisher (Phase 2.2~). 거리센서가 settings.json에 정의 안 됐어도
+            # RangePublisher가 _probe_sensors_once에서 경고만 출력하고 노드는 살아있도록 설계됨.
+            # 초기화 자체가 실패하는 케이스(드물게)에만 이 try/except로 비활성화.
+            if enable_range and range_sensors:
+                try:
+                    rng_pub = RangePublisher(
+                        node=self,
+                        client=self._client,
+                        vehicle_name=vehicle_name,
+                        distance_sensors=list(range_sensors),
+                        publish_rate=range_publish_rate,
+                        field_of_view_rad=range_field_of_view_rad,
+                    )
+                    self._range_publishers.append(rng_pub)
+                except Exception as e:
+                    self.get_logger().warn(
+                        f'[{vehicle_name}] Range publisher disabled after initialization error: {e}'
                     )
 
             controller = DroneController(

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config
+            https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain Id="any">
+    <General>
+      <AllowMulticast>spdp</AllowMulticast>
+      <MaxMessageSize>1400B</MaxMessageSize>
+      <FragmentSize>1344B</FragmentSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>20</MaxAutoParticipantIndex>
+      <!-- Phase 6에서 외부 Peers 추가 예정. 현재는 localhost 단독. -->
+    </Discovery>
+    <Internal>
+      <!-- /etc/sysctl.d/30-aerion-dds.conf 영구화 완료 (2026-05-18). 권장값 복원. -->
+      <SocketReceiveBufferSize min="10MB"/>
+      <SocketSendBufferSize min="1MB"/>
+      <Watermarks><WhcHigh>500kB</WhcHigh></Watermarks>
+      <DefragUnreliableMaxSamples>32</DefragUnreliableMaxSamples>
+    </Internal>
+    <Tracing><Verbosity>warning</Verbosity></Tracing>
+  </Domain>
+</CycloneDDS>

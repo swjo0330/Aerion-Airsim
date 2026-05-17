@@ -1,0 +1,95 @@
+{
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "ClockType": "SteppableClock",
+  "ViewMode": "SpringArmChase",
+  "OriginGeopoint": {
+    "Latitude": 37.5665,
+    "Longitude": 126.9780,
+    "Altitude": 38
+  },
+  "SubWindows": [
+    {
+      "WindowID": 0,
+      "CameraName": "front_center",
+      "ImageType": 0,
+      "VehicleName": "drone1",
+      "Visible": true
+    }
+  ],
+  "Vehicles": {
+    "drone1": {
+      "VehicleType": "SimpleFlight",
+      "X": 0.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0,
+      "Cameras": {
+        "front_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 320,
+              "Height": 240,
+              "FOV_Degrees": 90,
+              "AutoExposureSpeed": 100,
+              "MotionBlurAmount": 0,
+              "TargetGamma": 1.0
+            }
+          ],
+          "X": 0.25,
+          "Y": 0,
+          "Z": -0.18,
+          "Pitch": 0,
+          "Roll": 0,
+          "Yaw": 0
+        }
+      },
+      "Sensors": {
+        "Distance_Front": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0.30,
+          "Y": 0,
+          "Z": 0,
+          "Yaw": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 40,
+          "DrawDebugPoints": false
+        },
+        "Distance_Left": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": -0.30,
+          "Z": 0,
+          "Yaw": -90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
+        "Distance_Right": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": 0.30,
+          "Z": 0,
+          "Yaw": 90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
+        "Imu": { "SensorType": 2, "Enabled": true },
+        "Magnetometer": { "SensorType": 4, "Enabled": true },
+        "Barometer": { "SensorType": 1, "Enabled": true },
+        "Gps": { "SensorType": 3, "Enabled": true }
+      }
+    }
+  }
+}
