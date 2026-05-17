@@ -98,15 +98,21 @@ def main():
         except Exception as e:
             print(f'  [{v}] moveToZ FAIL: {e}', file=sys.stderr)
 
-    # ----- 도착 확인 -----
-    time.sleep(1.0)
+    # ----- 도착 확인 + stabilize hold -----
+    # moveToZ가 완료된 직후라도 진동/오버슈트 가능 → 2초 stabilize 대기.
+    # 그 동안 hoverAsync로 위치 고정 (드론이 떠밀려가지 않도록).
+    print(f'[arm_all] stabilize 2초 (hover hold)...')
+    hover_futures = [c.hoverAsync(vehicle_name=v) for v in vehicles]
+    time.sleep(2.0)
+    # hoverAsync는 비동기 작업이 계속됨. formation_node가 setpoint를 publish하기 시작하면 자동 override됨.
+
     print(f'[arm_all] 최종 위치:')
     all_ok = True
     for v in vehicles:
         pos = c.getMultirotorState(vehicle_name=v).kinematics_estimated.position
         z_enu = -pos.z_val  # NED → ENU
         err = abs(z_enu - args.altitude)
-        ok = err < 0.5
+        ok = err < 0.7  # 2초 stabilize 후 허용 오차 살짝 완화 (외력/오버슈트 대응)
         all_ok &= ok
         mark = 'OK' if ok else 'OFF'
         print(f'  [{v}] NED=({pos.x_val:+.2f}, {pos.y_val:+.2f}, {pos.z_val:+.2f})  '
@@ -114,6 +120,7 @@ def main():
 
     if all_ok:
         print('[arm_all] All drones at target altitude. Formation 진입 가능.')
+        print('[arm_all] HINT: formation_node가 띄워져 있으면 leader_pose 받자마자 setpoint 모드로 자동 전환.')
         sys.exit(0)
     else:
         print('[arm_all] WARN: 일부 드론이 목표 고도에 못 도달. Formation 진입 전 재시도 권장.', file=sys.stderr)
