@@ -24,6 +24,8 @@ setup(
             'aerion_formation = airsim_ros2_bridge.formation_node:main',
             # AERION Phase 4: dummy leader_pose 자동 발행 (외부 mission planner 없는 단일 머신 시연).
             'aerion_leader = airsim_ros2_bridge.leader_publisher:main',
+            # AERION Phase 3+: TF tree publisher (map → droneN/odom → droneN/base_link → ...).
+            'aerion_tf = airsim_ros2_bridge.tf_publisher:main',
         ],
     },
 )

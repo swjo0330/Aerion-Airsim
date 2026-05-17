@@ -116,8 +116,20 @@ def generate_launch_description():
         }],
     )
 
+    # TF publisher: RViz "Frame [map] does not exist" 해결. static + dynamic TF.
+    tf_pub = Node(
+        package='airsim_ros2_bridge',
+        executable='aerion_tf',
+        name='aerion_tf_publisher',
+        output='screen',
+        parameters=[{
+            'drone_count': LaunchConfiguration('drone_count'),
+        }],
+    )
+
     return LaunchDescription(args + leader_args + [
         OpaqueFunction(function=_build_bridges),
         formation,
         leader,
+        tf_pub,
     ])

@@ -5,6 +5,12 @@
             https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
   <Domain Id="any">
     <General>
+      <!-- AERION 2026-05-18: wlo1(WiFi)이 DOWN 일 때 자동선택 거부 방지.
+           lo + 유선(enp108s0) 명시. wlo1은 일부러 제외. -->
+      <Interfaces>
+        <NetworkInterface name="enp108s0" priority="10" multicast="default"/>
+        <NetworkInterface name="lo" priority="5" multicast="true"/>
+      </Interfaces>
       <AllowMulticast>spdp</AllowMulticast>
       <MaxMessageSize>1400B</MaxMessageSize>
       <FragmentSize>1344B</FragmentSize>

@@ -63,6 +63,23 @@ AERION 프로젝트의 ROS2 브릿지 패키지 변경 이력을 시간순으로
   - 이유: 차량/보행자 동적 액터 필요. 정적 맵 임포트로는 부족.
   - 베이스라인: UE5.5 + CARLA 0.10.0 + Colosseum 5.5. CarlaAir의 ASimWorldGameMode 합성 패턴 적용.
 
+### Round 4 추가 (Phase 3 시연 후 자율 모드)
+
+- **`airsim_ros2_bridge/tf_publisher.py`** — TF tree 발행 노드 신설
+  - Static: `map → drone{N}/odom`(spawn 위치 기반), `drone{N}/base_link → camera_link/camera_optical_frame/range_*_link`
+  - Dynamic: `drone{N}/odom → drone{N}/base_link`(mavros local_position/pose 구독, pose 갱신 주기)
+  - RViz "Fixed Frame [map] does not exist" 에러 해결
+  - `aerion_tf` entry_point + Phase 4 통합 launch에 노드 추가
+- **vehicle key 통일 적용 검증** — bridge 5개 launch 정상 (drone1..drone5 spawn 확인)
+- **CycloneDDS 환경 정리** — `~/.bashrc:123`에 잘못 들어있던 inline XML(wlo1 강제, wlo1 DOWN 시 모든 ROS2 노드 fail)을 file:// URI로 교체. 백업: `~/.bashrc.aerion_backup_*`
+- **`cyclonedds.xml` NetworkInterface 명시** — enp108s0 + lo (wlo1 자동선택 회피)
+- **`UE-SharedDataCachePath` 하이픈 typo 정정** — `UE_SharedDataCachePath`로 (line 152, 155 둘 다)
+
+### 알려진 함정 (Phase 3 시연 중 발견, 사용자 다음 세션에서 회피)
+
+- **`python3 -c "import airsim"`을 `~/airsim/` 디렉토리가 있는 cwd에서 실행하면 namespace 패키지로 가림** → `cd /tmp && python3 -c "..."` 형태로 호출
+- **UE Play를 Stop하면 bridge들은 살아있지만 RPC TimeoutError로 토픽 발행 정지** → 재 Play 시 자동 복귀 시도하나 안 되면 launch 재시작
+
 ### Migration Notes (이전 버전 → 현재 버전)
 
 기존 main 브랜치 사용자(`vehicle_names=['Drone0', 'Drone1']`, `simGetDistanceSensorData` 사용 코드)는:
