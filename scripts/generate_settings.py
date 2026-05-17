@@ -12,6 +12,14 @@ import json
 
 # 펌웨어별 포트 스킴 정의
 PORT_SCHEMES = {
+    "simpleflight": {
+        "vehicle_type": "SimpleFlight",
+        "clock_type": "SteppableClock",
+        "base_ports": {},
+        "port_offset": 1,
+        "extra_settings": {},
+        "parameters": {},
+    },
     "px4": {
         "vehicle_type": "PX4Multirotor",
         "clock_type": "SteppableClock",
@@ -57,11 +65,13 @@ def generate_vehicle(
     instance: int,
     mavros_ip: str,
     local_ip: str,
+    px4_instance: int | None = None,
     spacing: float = 5.0,
 ) -> dict:
     """단일 드론 설정 생성."""
     scheme = PORT_SCHEMES[firmware]
-    offset = instance * scheme["port_offset"]
+    port_instance = px4_instance if firmware == "px4" and px4_instance is not None else instance
+    offset = port_instance * scheme["port_offset"]
 
     vehicle = {
         "VehicleType": scheme["vehicle_type"],
@@ -90,7 +100,7 @@ def generate_vehicle(
     for port_key, base_port in scheme["base_ports"].items():
         if port_key == "ControlPortRemote":
             # MAVROS 포워딩 포트는 인스턴스당 +1
-            vehicle[port_key] = MAVROS_BASE_PORT + instance
+            vehicle[port_key] = MAVROS_BASE_PORT + port_instance
         else:
             vehicle[port_key] = base_port + offset
 
@@ -100,9 +110,9 @@ def generate_vehicle(
         vehicle["LocalHostIp"] = local_ip
         vehicle["Parameters"] = {
             **scheme["parameters"],
-            "MAV_SYS_ID": instance + 1,
+            "MAV_SYS_ID": port_instance + 1,
         }
-    else:
+    elif firmware == "ardupilot":
         vehicle["LocalHostIp"] = "127.0.0.1"
 
     # ArduPilot: UdpIp 설정
@@ -112,7 +122,13 @@ def generate_vehicle(
     return vehicle
 
 
-def generate_settings(firmware: str, num_drones: int, mavros_ip: str, local_ip: str) -> dict:
+def generate_settings(
+    firmware: str,
+    num_drones: int,
+    mavros_ip: str,
+    local_ip: str,
+    px4_instance_ids: list[int] | None = None,
+) -> dict:
     """전체 settings.json 생성."""
     scheme = PORT_SCHEMES[firmware]
 
@@ -130,12 +146,19 @@ def generate_settings(firmware: str, num_drones: int, mavros_ip: str, local_ip: 
 
     for i in range(num_drones):
         name = f"Drone{i}"
-        settings["Vehicles"][name] = generate_vehicle(firmware, i, mavros_ip, local_ip)
+        px4_instance = px4_instance_ids[i] if px4_instance_ids is not None else None
+        settings["Vehicles"][name] = generate_vehicle(
+            firmware,
+            i,
+            mavros_ip,
+            local_ip,
+            px4_instance=px4_instance,
+        )
 
     return settings
 
 
-def print_port_table(firmware: str, num_drones: int):
+def print_port_table(firmware: str, num_drones: int, px4_instance_ids: list[int] | None = None):
     """포트 매핑 테이블 출력."""
     scheme = PORT_SCHEMES[firmware]
     print(f"\n{'='*60}")
@@ -144,6 +167,7 @@ def print_port_table(firmware: str, num_drones: int):
 
     headers = list(scheme["base_ports"].keys())
     if firmware == "px4":
+        headers.insert(0, "PX4_INSTANCE")
         headers.append("MAV_SYS_ID")
 
     print(f"  {'드론':<10}", end="")
@@ -156,15 +180,18 @@ def print_port_table(firmware: str, num_drones: int):
     print()
 
     for i in range(num_drones):
-        offset = i * scheme["port_offset"]
+        port_instance = px4_instance_ids[i] if firmware == "px4" and px4_instance_ids is not None else i
+        offset = port_instance * scheme["port_offset"]
         print(f"  {'Drone'+str(i):<10}", end="")
+        if firmware == "px4":
+            print(f"{port_instance:<22}", end="")
         for key, base in scheme["base_ports"].items():
             if key == "ControlPortRemote":
-                print(f"{MAVROS_BASE_PORT + i:<22}", end="")
+                print(f"{MAVROS_BASE_PORT + port_instance:<22}", end="")
             else:
                 print(f"{base + offset:<22}", end="")
         if firmware == "px4":
-            print(f"{i + 1:<22}", end="")
+            print(f"{port_instance + 1:<22}", end="")
         print()
 
     if firmware == "ardupilot":
@@ -175,7 +202,7 @@ def print_port_table(firmware: str, num_drones: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Colosseum settings.json 생성기")
-    parser.add_argument("--firmware", "-f", choices=["px4", "ardupilot"], required=True,
+    parser.add_argument("--firmware", "-f", choices=["simpleflight", "px4", "ardupilot"], required=True,
                         help="펌웨어 유형 (px4 또는 ardupilot)")
     parser.add_argument("--drones", "-n", type=int, default=2,
                         help="드론 수 (기본: 2)")
@@ -183,13 +210,33 @@ def main():
                         help="원격 MAVROS IP (기본: 127.0.0.1)")
     parser.add_argument("--local-ip", default="127.0.0.1",
                         help="시뮬레이션 머신의 로컬 IP (기본: 127.0.0.1)")
+    parser.add_argument("--px4-instance-ids", default=None,
+                        help="드론별 PX4 instance id 목록, 예: 0,1,3")
     parser.add_argument("--output", "-o", default=None,
                         help="출력 파일 경로 (기본: settings/<firmware>_<n>drones.json)")
     parser.add_argument("--deploy", "-d", action="store_true",
                         help="~/Documents/AirSim/settings.json에도 복사")
     args = parser.parse_args()
 
-    settings = generate_settings(args.firmware, args.drones, args.mavros_ip, args.local_ip)
+    px4_instance_ids = None
+    if args.px4_instance_ids:
+        px4_instance_ids = [
+            int(value.strip())
+            for value in args.px4_instance_ids.split(",")
+            if value.strip()
+        ]
+        if args.firmware != "px4":
+            parser.error("--px4-instance-ids is only valid with --firmware px4")
+        if len(px4_instance_ids) != args.drones:
+            parser.error("--px4-instance-ids must contain exactly --drones entries")
+
+    settings = generate_settings(
+        args.firmware,
+        args.drones,
+        args.mavros_ip,
+        args.local_ip,
+        px4_instance_ids=px4_instance_ids,
+    )
 
     # 출력 파일 경로
     if args.output:
@@ -213,7 +260,7 @@ def main():
         print(f"배포 완료: {deploy_path}")
 
     # 포트 테이블 출력
-    print_port_table(args.firmware, args.drones)
+    print_port_table(args.firmware, args.drones, px4_instance_ids=px4_instance_ids)
 
     # JSON 미리보기
     print(json.dumps(settings, indent=2))

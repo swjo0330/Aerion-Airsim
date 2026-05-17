@@ -32,6 +32,9 @@ class AirSimBridgeNode(Node):
         super().__init__('airsim_bridge')
 
         # Parameters
+        self.declare_parameter('vehicle_name', '')
+        self.declare_parameter('vehicle_index', -1)
+        self.declare_parameter('mavros_instance_namespace', '')
         self.declare_parameter('vehicle_names', ['Drone0', 'Drone1'])
         self.declare_parameter('camera_name', 'front_center')
         self.declare_parameter('camera_fps', 30.0)
@@ -49,6 +52,11 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('home_longitude', 126.9780)
         self.declare_parameter('home_altitude', 0.0)
 
+        vehicle_name = self.get_parameter('vehicle_name').get_parameter_value().string_value
+        vehicle_index = self.get_parameter('vehicle_index').get_parameter_value().integer_value
+        mavros_instance_namespace = (
+            self.get_parameter('mavros_instance_namespace').get_parameter_value().string_value
+        )
         vehicle_names = self.get_parameter('vehicle_names').get_parameter_value().string_array_value
         camera_name = self.get_parameter('camera_name').get_parameter_value().string_value
         camera_fps = self.get_parameter('camera_fps').get_parameter_value().double_value
@@ -79,11 +87,19 @@ class AirSimBridgeNode(Node):
         self._client.confirmConnection()
         self.get_logger().info('Connected to AirSim!')
 
+        vehicle_specs = self._resolve_vehicle_specs(
+            vehicle_name=vehicle_name,
+            vehicle_index=vehicle_index,
+            mavros_instance_namespace=mavros_instance_namespace,
+            vehicle_names=vehicle_names,
+        )
+
         # Create camera publishers and controllers for each vehicle
         self._camera_publishers = []
         self._drone_controllers = []
 
-        for index, vehicle_name in enumerate(vehicle_names):
+        for spec in vehicle_specs:
+            vehicle_name = spec['vehicle_name']
             self.get_logger().info(f'Setting up {vehicle_name}...')
 
             if enable_camera:
@@ -113,11 +129,45 @@ class AirSimBridgeNode(Node):
                 home_latitude=home_latitude,
                 home_longitude=home_longitude,
                 home_altitude=home_altitude,
-                mavros_instance_namespace=f'mavros{index}',
+                mavros_instance_namespace=spec['mavros_instance_namespace'],
             )
             self._drone_controllers.append(controller)
 
-        self.get_logger().info(f'Bridge running for {len(vehicle_names)} vehicles')
+        self.get_logger().info(f'Bridge running for {len(vehicle_specs)} vehicle instance(s)')
+
+    @staticmethod
+    def _resolve_vehicle_specs(
+        vehicle_name: str,
+        vehicle_index: int,
+        mavros_instance_namespace: str,
+        vehicle_names,
+    ) -> list[dict[str, str]]:
+        if vehicle_name:
+            index = vehicle_index if vehicle_index >= 0 else AirSimBridgeNode._index_from_vehicle_name(vehicle_name)
+            namespace = mavros_instance_namespace or f'mavros{index}'
+            return [
+                {
+                    'vehicle_name': vehicle_name,
+                    'mavros_instance_namespace': namespace,
+                }
+            ]
+
+        return [
+            {
+                'vehicle_name': name,
+                'mavros_instance_namespace': f'mavros{index}',
+            }
+            for index, name in enumerate(vehicle_names)
+        ]
+
+    @staticmethod
+    def _index_from_vehicle_name(vehicle_name: str) -> int:
+        digits = ''
+        for char in reversed(vehicle_name):
+            if not char.isdigit():
+                break
+            digits = char + digits
+        return int(digits) if digits else 0
 
 
 def main(args=None):

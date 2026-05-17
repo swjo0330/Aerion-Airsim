@@ -626,6 +626,15 @@ class DroneController:
         if self._control_backend == 'px4_mavros' and self._px4_mavros_setpoint_pub is not None:
             self._last_velocity_enu = (msg.linear.x, msg.linear.y, msg.linear.z)
             self._px4_mavros_setpoint_pub.publish(msg)
+            ned_x, ned_y, ned_z = self._enu_to_ned(msg.linear.x, msg.linear.y, msg.linear.z)
+            self._send_velocity_ned(
+                ned_x,
+                ned_y,
+                ned_z,
+                source='ap_cmd_vel',
+                enu=(msg.linear.x, msg.linear.y, msg.linear.z),
+                allow_local_motion=True,
+            )
             return
         self._mavros_cmd_vel_unstamped_callback(msg)
 
@@ -684,9 +693,10 @@ class DroneController:
         ned_z: float,
         source: str,
         enu: tuple[float, float, float] | None = None,
+        allow_local_motion: bool = False,
     ):
         try:
-            if self._control_backend != 'airsim_direct':
+            if self._control_backend != 'airsim_direct' and not allow_local_motion:
                 return
             # API control 재시도는 하되, 실패해도 kinematic/pose 제어 시도는 계속한다.
             self._ensure_api_control()
@@ -755,12 +765,15 @@ class DroneController:
         return response
 
     def _mavros_cmd_takeoff_callback(self, request, response):
-        del request
         ok = True
         try:
             self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
             self._client.armDisarm(True, vehicle_name=self._vehicle_name)
             self._client.takeoffAsync(vehicle_name=self._vehicle_name).join()
+            if self._velocity_control_mode == 'kinematic':
+                altitude = float(getattr(request, 'altitude', 0.0) or abs(self._kinematic_z_ned))
+                target_z_ned = -altitude if altitude > 0.0 else self._kinematic_z_ned
+                self._set_kinematic_z(target_z_ned)
             self._armed = True
             self._guided = True
             self._mode = 'GUIDED'
@@ -780,6 +793,8 @@ class DroneController:
         try:
             self._client.enableApiControl(True, vehicle_name=self._vehicle_name)
             self._client.landAsync(vehicle_name=self._vehicle_name).join()
+            if self._velocity_control_mode == 'kinematic':
+                self._set_kinematic_z(0.0)
             self._armed = False
             self._guided = True
             self._mode = 'LAND'
@@ -792,6 +807,22 @@ class DroneController:
         if hasattr(response, 'result'):
             response.result = 0 if ok else 1
         return response
+
+    def _set_kinematic_z(self, ned_z: float):
+        position, orientation_xyzw, _ = self._get_vehicle_kinematics()
+        orientation_wxyz = [
+            orientation_xyzw[3],
+            orientation_xyzw[0],
+            orientation_xyzw[1],
+            orientation_xyzw[2],
+        ]
+        next_position = [position[0], position[1], ned_z]
+        self._client.client.call(
+            'simSetVehiclePose',
+            [next_position, orientation_wxyz],
+            True,
+            self._vehicle_name,
+        )
 
     def _mavros_cmd_command_callback(self, request, response):
         command = int(getattr(request, 'command', -1))

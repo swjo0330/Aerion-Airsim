@@ -1,0 +1,150 @@
+{
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "ClockType": "SteppableClock",
+  "SubWindows": [
+    {
+      "WindowID": 0,
+      "CameraName": "front_center",
+      "ImageType": 0,
+      "VehicleName": "Drone0",
+      "Visible": true
+    },
+    {
+      "WindowID": 1,
+      "CameraName": "front_center",
+      "ImageType": 3,
+      "VehicleName": "Drone0",
+      "Visible": true
+    },
+    {
+      "WindowID": 2,
+      "CameraName": "front_center",
+      "ImageType": 0,
+      "VehicleName": "Drone1",
+      "Visible": true
+    }
+  ],
+  "Vehicles": {
+    "Drone0": {
+      "VehicleType": "PX4Multirotor",
+      "X": 0.0,
+      "Y": 0,
+      "Z": 0,
+      "Cameras": {
+        "front_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1280,
+              "Height": 720,
+              "FOV_Degrees": 90,
+              "MotionBlurAmount": 0
+            }
+          ],
+          "X": 0.25,
+          "Y": 0,
+          "Z": -0.18,
+          "Pitch": 0,
+          "Roll": 0,
+          "Yaw": 0
+        }
+      },
+      "UseSerial": false,
+      "LockStep": true,
+      "UseTcp": true,
+      "TcpPort": 4560,
+      "ControlPortLocal": 14540,
+      "ControlPortRemote": 14555,
+      "ControlIp": "127.0.0.1",
+      "LocalHostIp": "172.23.80.1",
+      "Parameters": {
+        "NAV_RCL_ACT": 0,
+        "NAV_DLL_ACT": 0,
+        "COM_OBL_ACT": 1,
+        "MAV_0_BROADCAST": 1,
+        "MAV_SYS_ID": 1
+      }
+    },
+    "Drone1": {
+      "VehicleType": "PX4Multirotor",
+      "X": 5.0,
+      "Y": 0,
+      "Z": 0,
+      "Cameras": {
+        "front_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1280,
+              "Height": 720,
+              "FOV_Degrees": 90,
+              "MotionBlurAmount": 0
+            }
+          ],
+          "X": 0.25,
+          "Y": 0,
+          "Z": -0.18,
+          "Pitch": 0,
+          "Roll": 0,
+          "Yaw": 0
+        }
+      },
+      "UseSerial": false,
+      "LockStep": true,
+      "UseTcp": true,
+      "TcpPort": 4561,
+      "ControlPortLocal": 14541,
+      "ControlPortRemote": 14556,
+      "ControlIp": "127.0.0.1",
+      "LocalHostIp": "172.23.80.1",
+      "Parameters": {
+        "NAV_RCL_ACT": 0,
+        "NAV_DLL_ACT": 0,
+        "COM_OBL_ACT": 1,
+        "MAV_0_BROADCAST": 1,
+        "MAV_SYS_ID": 2
+      }
+    },
+    "Drone2": {
+      "VehicleType": "PX4Multirotor",
+      "X": 10.0,
+      "Y": 0,
+      "Z": 0,
+      "Cameras": {
+        "front_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1280,
+              "Height": 720,
+              "FOV_Degrees": 90,
+              "MotionBlurAmount": 0
+            }
+          ],
+          "X": 0.25,
+          "Y": 0,
+          "Z": -0.18,
+          "Pitch": 0,
+          "Roll": 0,
+          "Yaw": 0
+        }
+      },
+      "UseSerial": false,
+      "LockStep": true,
+      "UseTcp": true,
+      "TcpPort": 4563,
+      "ControlPortLocal": 14543,
+      "ControlPortRemote": 14558,
+      "ControlIp": "127.0.0.1",
+      "LocalHostIp": "172.23.80.1",
+      "Parameters": {
+        "NAV_RCL_ACT": 0,
+        "NAV_DLL_ACT": 0,
+        "COM_OBL_ACT": 1,
+        "MAV_0_BROADCAST": 1,
+        "MAV_SYS_ID": 4
+      }
+    }
+  }
+}

@@ -6,9 +6,20 @@ ROS_WS="${ROS_WS:-$HOME/aerion_ros2_ws}"
 AIRSIM_IP="${AIRSIM_IP:-172.23.80.1}"
 AIRSIM_PORT="${AIRSIM_PORT:-41451}"
 AIRSIM_TIMEOUT_SEC="${AIRSIM_TIMEOUT_SEC:-2.0}"
+VEHICLE_NAME="${VEHICLE_NAME:-Drone0}"
+VEHICLE_INDEX="${VEHICLE_INDEX:-${VEHICLE_NAME##*[!0-9]}}"
+VEHICLE_INDEX="${VEHICLE_INDEX:-0}"
+MAVROS_NAMESPACE="${MAVROS_NAMESPACE:-mavros${VEHICLE_INDEX}}"
+NODE_NAME="${NODE_NAME:-airsim_bridge_${VEHICLE_NAME}}"
 ARDU_COMPAT_VEHICLE="${ARDU_COMPAT_VEHICLE:-Drone0}"
 ENABLE_CAMERA="${ENABLE_CAMERA:-false}"
-ENABLE_ARDU_COMPAT="${ENABLE_ARDU_COMPAT:-true}"
+if [ -z "${ENABLE_ARDU_COMPAT+x}" ]; then
+    if [ "$VEHICLE_NAME" = "$ARDU_COMPAT_VEHICLE" ]; then
+        ENABLE_ARDU_COMPAT=true
+    else
+        ENABLE_ARDU_COMPAT=false
+    fi
+fi
 VELOCITY_CONTROL_MODE="${VELOCITY_CONTROL_MODE:-kinematic}"
 CONTROL_BACKEND="${CONTROL_BACKEND:-px4_mavros}"
 VELOCITY_COMMAND_DURATION="${VELOCITY_COMMAND_DURATION:-0.2}"
@@ -32,6 +43,10 @@ source install/setup.bash
 set -u
 
 exec ros2 run airsim_ros2_bridge bridge_node --ros-args \
+    -r __node:="$NODE_NAME" \
+    -p vehicle_name:="$VEHICLE_NAME" \
+    -p vehicle_index:="$VEHICLE_INDEX" \
+    -p mavros_instance_namespace:="$MAVROS_NAMESPACE" \
     -p airsim_ip:="$AIRSIM_IP" \
     -p airsim_port:="$AIRSIM_PORT" \
     -p enable_camera:="$ENABLE_CAMERA" \

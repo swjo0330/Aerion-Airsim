@@ -7,12 +7,41 @@ AIRSIM_IP="${AIRSIM_IP:-172.23.80.1}"
 AIRSIM_PORT="${AIRSIM_PORT:-41451}"
 AIRSIM_TIMEOUT_SEC="${AIRSIM_TIMEOUT_SEC:-2.0}"
 VEHICLE_NAME="${VEHICLE_NAME:-Drone0}"
+VEHICLE_INDEX="${VEHICLE_INDEX:-${VEHICLE_NAME##*[!0-9]}}"
+VEHICLE_INDEX="${VEHICLE_INDEX:-0}"
+MAVROS_NAMESPACE="${MAVROS_NAMESPACE:-mavros${VEHICLE_INDEX}}"
+ARDU_COMPAT_VEHICLE="${ARDU_COMPAT_VEHICLE:-Drone0}"
+if [ -z "${ENABLE_ARDU_COMPAT+x}" ]; then
+    if [ "$VEHICLE_NAME" = "$ARDU_COMPAT_VEHICLE" ]; then
+        ENABLE_ARDU_COMPAT=true
+    else
+        ENABLE_ARDU_COMPAT=false
+    fi
+fi
 ROS_TOPIC_TIMEOUT="${ROS_TOPIC_TIMEOUT:-30}"
 MOVE_SPEED_X="${MOVE_SPEED_X:-0.5}"
 MOVE_DURATION_SEC="${MOVE_DURATION_SEC:-1.0}"
 MIN_MOVE_DELTA="${MIN_MOVE_DELTA:-0.05}"
+PROBE_TARGET_DX="${PROBE_TARGET_DX:-0.5}"
+PROBE_TARGET_DY="${PROBE_TARGET_DY:-0.0}"
+PROBE_TARGET_DZ="${PROBE_TARGET_DZ:-0.0}"
+PROBE_TOLERANCE="${PROBE_TOLERANCE:-0.20}"
+PROBE_MAX_DURATION_SEC="${PROBE_MAX_DURATION_SEC:-60.0}"
+TAKEOFF_SERVICE="${TAKEOFF_SERVICE:-/${MAVROS_NAMESPACE}/cmd/takeoff}"
+LAND_SERVICE="${LAND_SERVICE:-/${MAVROS_NAMESPACE}/cmd/land}"
+TAKEOFF_ALTITUDE="${TAKEOFF_ALTITUDE:-2.0}"
+TAKEOFF_SETTLE_SEC="${TAKEOFF_SETTLE_SEC:-2.0}"
+LAND_SETTLE_SEC="${LAND_SETTLE_SEC:-2.0}"
 RESET_ROS_DAEMON="${RESET_ROS_DAEMON:-false}"
 CONTROL_BACKEND="${CONTROL_BACKEND:-px4_mavros}"
+DISABLE_FASTDDS_SHM="${DISABLE_FASTDDS_SHM:-true}"
+LAND_ON_EXIT=false
+SMOKE_TMP_DIR="$(mktemp -d "${TMPDIR:-$HOME}/aerion_smoke.XXXXXX")"
+
+tmp_path() {
+    local name="$1"
+    echo "${SMOKE_TMP_DIR}/${name}"
+}
 
 if [ ! -f /opt/ros/humble/setup.bash ]; then
     echo "ERROR: ROS2 Humble setup not found at /opt/ros/humble/setup.bash" >&2
@@ -30,6 +59,11 @@ set +u
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 set -u
+
+if [ "$DISABLE_FASTDDS_SHM" = "true" ]; then
+    # Avoid FastDDS shared-memory port lock conflicts in long-lived WSL sessions.
+    export FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+fi
 
 if [ "$RESET_ROS_DAEMON" = "true" ]; then
     ros2 daemon stop || true
@@ -59,11 +93,14 @@ PY
 }
 
 mavros_pose_xyz() {
-    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros0/local_position/pose >/tmp/aerion_mavros0_pose.txt
-    python3 - <<'PY'
+    local pose_file
+    pose_file="$(tmp_path "${MAVROS_NAMESPACE}_pose.txt")"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once "/${MAVROS_NAMESPACE}/local_position/pose" >"$pose_file"
+    python3 - "$pose_file" <<'PY'
 import re
+import sys
 from pathlib import Path
-text = Path("/tmp/aerion_mavros0_pose.txt").read_text()
+text = Path(sys.argv[1]).read_text()
 vals = []
 for axis in ("x", "y", "z"):
     m = re.search(rf"^\s*{axis}:\s*([-+0-9.eE]+)\s*$", text, flags=re.MULTILINE)
@@ -71,6 +108,43 @@ for axis in ("x", "y", "z"):
 print(f"{vals[0]} {vals[1]} {vals[2]}")
 PY
 }
+
+call_tol_service() {
+    local service_name="$1"
+    local label="$2"
+    local response_file
+    response_file="$(tmp_path "tol_response.txt")"
+
+    echo "Calling ${label}: ${service_name}..."
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 service call "$service_name" mavros_msgs/srv/CommandTOL \
+        "{min_pitch: 0.0, yaw: 0.0, latitude: 0.0, longitude: 0.0, altitude: ${TAKEOFF_ALTITUDE}}" \
+        >"$response_file"
+    cat "$response_file"
+    if ! grep -Eq "success=[Tt]rue|success: [Tt]rue" "$response_file"; then
+        echo "ERROR: ${label} service did not report success=true" >&2
+        exit 1
+    fi
+}
+
+cleanup_land() {
+    if [ "${LAND_ON_EXIT:-false}" != "true" ]; then
+        return
+    fi
+
+    local cleanup_file
+    cleanup_file="$(tmp_path "cleanup_land_response.txt")"
+    echo "Cleanup: attempting land via ${LAND_SERVICE}..." >&2
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 service call "$LAND_SERVICE" mavros_msgs/srv/CommandTOL \
+        "{min_pitch: 0.0, yaw: 0.0, latitude: 0.0, longitude: 0.0, altitude: ${TAKEOFF_ALTITUDE}}" \
+        >"$cleanup_file" 2>&1 || true
+    cat "$cleanup_file" >&2 || true
+}
+
+cleanup_tmp_dir() {
+    rm -rf "$SMOKE_TMP_DIR" 2>/dev/null || true
+}
+
+trap 'cleanup_land; cleanup_tmp_dir' EXIT
 
 echo "Checking AirSim RPC at ${AIRSIM_IP}:${AIRSIM_PORT} for ${VEHICLE_NAME}..."
 before_pose="$(pose_xyz)"
@@ -80,27 +154,52 @@ if [ "$CONTROL_BACKEND" = "px4_mavros" ]; then
     echo "Initial MAVROS pose: $before_mavros_pose"
 fi
 
-echo "Checking /ap/status..."
-timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/status >/tmp/aerion_ap_status.txt
-cat /tmp/aerion_ap_status.txt
-if ! grep -q "api_control=true" /tmp/aerion_ap_status.txt; then
-    echo "ERROR: /ap/status does not report api_control=true" >&2
-    exit 1
+if [ "$ENABLE_ARDU_COMPAT" = "true" ]; then
+    echo "Checking /ap/status..."
+    ap_status_file="$(tmp_path "ap_status.txt")"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/status >"$ap_status_file"
+    cat "$ap_status_file"
+    if ! grep -q "api_control=true" "$ap_status_file"; then
+        echo "ERROR: /ap/status does not report api_control=true" >&2
+        exit 1
+    fi
+
+    echo "Checking /ap/pose/filtered..."
+    ap_pose_file="$(tmp_path "ap_pose.txt")"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/pose/filtered >"$ap_pose_file"
+    head -n 20 "$ap_pose_file"
+
+    echo "Checking /ap/twist/filtered..."
+    ap_twist_file="$(tmp_path "ap_twist.txt")"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/twist/filtered >"$ap_twist_file"
+    head -n 20 "$ap_twist_file"
+else
+    echo "SKIP: /ap compatibility topics because ENABLE_ARDU_COMPAT=false for ${VEHICLE_NAME}"
 fi
 
-echo "Checking /ap/pose/filtered..."
-timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/pose/filtered >/tmp/aerion_ap_pose.txt
-head -n 20 /tmp/aerion_ap_pose.txt
-
-echo "Checking /ap/twist/filtered..."
-timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /ap/twist/filtered >/tmp/aerion_ap_twist.txt
-head -n 20 /tmp/aerion_ap_twist.txt
-
 echo "Checking expanded MAVROS/Aerion compatibility topics..."
+topic_check_file="$(tmp_path "topic_check.txt")"
 while read -r topic msg_type; do
-    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once "$topic" "$msg_type" >/tmp/aerion_topic_check.txt
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once "$topic" "$msg_type" >"$topic_check_file"
     echo "OK: $topic"
-done <<'TOPICS'
+done <<TOPICS
+/${VEHICLE_NAME}/mavros/local_position/pose geometry_msgs/msg/PoseStamped
+/${VEHICLE_NAME}/mavros/local_position/odom nav_msgs/msg/Odometry
+/${VEHICLE_NAME}/mavros/local_position/velocity_local geometry_msgs/msg/TwistStamped
+/${VEHICLE_NAME}/mavros/global_position/global sensor_msgs/msg/NavSatFix
+/${VEHICLE_NAME}/mavros/global_position/rel_alt std_msgs/msg/Float64
+/${VEHICLE_NAME}/mavros/imu/data sensor_msgs/msg/Imu
+/${VEHICLE_NAME}/mavros/battery sensor_msgs/msg/BatteryState
+/${MAVROS_NAMESPACE}/local_position/pose geometry_msgs/msg/PoseStamped
+/${MAVROS_NAMESPACE}/imu/data sensor_msgs/msg/Imu
+/${MAVROS_NAMESPACE}/global_position/global sensor_msgs/msg/NavSatFix
+TOPICS
+
+if [ "$ENABLE_ARDU_COMPAT" = "true" ]; then
+    while read -r topic msg_type; do
+        timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once "$topic" "$msg_type" >"$topic_check_file"
+        echo "OK: $topic"
+    done <<'TOPICS'
 /ap/navsat sensor_msgs/msg/NavSatFix
 /ap/imu/experimental/data sensor_msgs/msg/Imu
 /ap/battery sensor_msgs/msg/BatteryState
@@ -110,45 +209,35 @@ done <<'TOPICS'
 /mavros/global_position/rel_alt std_msgs/msg/Float64
 /mavros/imu/data sensor_msgs/msg/Imu
 /mavros/battery sensor_msgs/msg/BatteryState
-/mavros0/local_position/pose geometry_msgs/msg/PoseStamped
-/mavros0/imu/data sensor_msgs/msg/Imu
-/mavros0/global_position/global sensor_msgs/msg/NavSatFix
-/mavros1/local_position/pose geometry_msgs/msg/PoseStamped
-/mavros1/imu/data sensor_msgs/msg/Imu
-/mavros1/global_position/global sensor_msgs/msg/NavSatFix
 /odometry nav_msgs/msg/Odometry
 /imu sensor_msgs/msg/Imu
 /navsat sensor_msgs/msg/NavSatFix
 /battery sensor_msgs/msg/BatteryState
 TOPICS
+fi
 
 if ros2 interface show mavros_msgs/msg/State >/dev/null 2>&1; then
-    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros/state >/tmp/aerion_mavros_state.txt
-    echo "OK: /mavros/state"
-    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros0/state >/tmp/aerion_mavros0_state.txt
-    echo "OK: /mavros0/state"
-    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros1/state >/tmp/aerion_mavros1_state.txt
-    echo "OK: /mavros1/state"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once "/${MAVROS_NAMESPACE}/state" >"$(tmp_path "${MAVROS_NAMESPACE}_state.txt")"
+    echo "OK: /${MAVROS_NAMESPACE}/state"
+    if [ "$ENABLE_ARDU_COMPAT" = "true" ]; then
+        timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros/state >"$(tmp_path "mavros_state.txt")"
+        echo "OK: /mavros/state"
+    fi
 else
-    echo "SKIP: /mavros/state and /mavrosN/state because mavros_msgs/msg/State is not installed"
+    echo "SKIP: /mavros state topics because mavros_msgs/msg/State is not installed"
 fi
 
 if ros2 interface show mavros_msgs/msg/ExtendedState >/dev/null 2>&1; then
-    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros0/extended_state >/tmp/aerion_mavros0_extended_state.txt
-    echo "OK: /mavros0/extended_state"
-    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once /mavros1/extended_state >/tmp/aerion_mavros1_extended_state.txt
-    echo "OK: /mavros1/extended_state"
+    timeout "$ROS_TOPIC_TIMEOUT" ros2 topic echo --once "/${MAVROS_NAMESPACE}/extended_state" >"$(tmp_path "${MAVROS_NAMESPACE}_extended_state.txt")"
+    echo "OK: /${MAVROS_NAMESPACE}/extended_state"
 else
-    echo "SKIP: /mavrosN/extended_state because mavros_msgs/msg/ExtendedState is not installed"
+    echo "SKIP: /${MAVROS_NAMESPACE}/extended_state because mavros_msgs/msg/ExtendedState is not installed"
 fi
 
 if ros2 interface show mavros_msgs/srv/CommandBool >/dev/null 2>&1 && ros2 interface show mavros_msgs/srv/SetMode >/dev/null 2>&1; then
     for service_name in \
-        /Drone0/mavros/cmd/arming /Drone0/mavros/set_mode \
-        /Drone1/mavros/cmd/arming /Drone1/mavros/set_mode \
-        /mavros0/cmd/arming /mavros0/set_mode \
-        /mavros1/cmd/arming /mavros1/set_mode \
-        /mavros/cmd/arming /mavros/set_mode
+        "/${VEHICLE_NAME}/mavros/cmd/arming" "/${VEHICLE_NAME}/mavros/set_mode" \
+        "/${MAVROS_NAMESPACE}/cmd/arming" "/${MAVROS_NAMESPACE}/set_mode"
     do
         if ros2 service list | grep -Fx "$service_name" >/dev/null 2>&1; then
             echo "OK: $service_name"
@@ -157,17 +246,24 @@ if ros2 interface show mavros_msgs/srv/CommandBool >/dev/null 2>&1 && ros2 inter
             exit 1
         fi
     done
+    if [ "$ENABLE_ARDU_COMPAT" = "true" ]; then
+        for service_name in /mavros/cmd/arming /mavros/set_mode; do
+            if ros2 service list | grep -Fx "$service_name" >/dev/null 2>&1; then
+                echo "OK: $service_name"
+            else
+                echo "ERROR: missing service $service_name" >&2
+                exit 1
+            fi
+        done
+    fi
 else
     echo "SKIP: MAVROS service checks because mavros_msgs srv types are not installed"
 fi
 
 if ros2 interface show mavros_msgs/srv/CommandTOL >/dev/null 2>&1; then
     for service_name in \
-        /Drone0/mavros/cmd/takeoff /Drone0/mavros/cmd/land \
-        /Drone1/mavros/cmd/takeoff /Drone1/mavros/cmd/land \
-        /mavros0/cmd/takeoff /mavros0/cmd/land \
-        /mavros1/cmd/takeoff /mavros1/cmd/land \
-        /mavros/cmd/takeoff /mavros/cmd/land
+        "/${VEHICLE_NAME}/mavros/cmd/takeoff" "/${VEHICLE_NAME}/mavros/cmd/land" \
+        "/${MAVROS_NAMESPACE}/cmd/takeoff" "/${MAVROS_NAMESPACE}/cmd/land"
     do
         if ros2 service list | grep -Fx "$service_name" >/dev/null 2>&1; then
             echo "OK: $service_name"
@@ -176,17 +272,24 @@ if ros2 interface show mavros_msgs/srv/CommandTOL >/dev/null 2>&1; then
             exit 1
         fi
     done
+    if [ "$ENABLE_ARDU_COMPAT" = "true" ]; then
+        for service_name in /mavros/cmd/takeoff /mavros/cmd/land; do
+            if ros2 service list | grep -Fx "$service_name" >/dev/null 2>&1; then
+                echo "OK: $service_name"
+            else
+                echo "ERROR: missing service $service_name" >&2
+                exit 1
+            fi
+        done
+    fi
 else
     echo "SKIP: takeoff/land service checks because mavros_msgs/srv/CommandTOL is not installed"
 fi
 
 if ros2 interface show mavros_msgs/srv/CommandLong >/dev/null 2>&1; then
     for service_name in \
-        /Drone0/mavros/cmd/command \
-        /Drone1/mavros/cmd/command \
-        /mavros0/cmd/command \
-        /mavros1/cmd/command \
-        /mavros/cmd/command
+        "/${VEHICLE_NAME}/mavros/cmd/command" \
+        "/${MAVROS_NAMESPACE}/cmd/command"
     do
         if ros2 service list | grep -Fx "$service_name" >/dev/null 2>&1; then
             echo "OK: $service_name"
@@ -195,12 +298,39 @@ if ros2 interface show mavros_msgs/srv/CommandLong >/dev/null 2>&1; then
             exit 1
         fi
     done
+    if [ "$ENABLE_ARDU_COMPAT" = "true" ]; then
+        if ros2 service list | grep -Fx /mavros/cmd/command >/dev/null 2>&1; then
+            echo "OK: /mavros/cmd/command"
+        else
+            echo "ERROR: missing service /mavros/cmd/command" >&2
+            exit 1
+        fi
+    fi
 else
     echo "SKIP: command service checks because mavros_msgs/srv/CommandLong is not installed"
 fi
 
-echo "Publishing /ap/cmd_vel..."
-publish_count="$(python3 - "$MOVE_DURATION_SEC" <<'PY'
+if [ "$CONTROL_BACKEND" = "px4_mavros" ]; then
+    call_tol_service "$TAKEOFF_SERVICE" "takeoff"
+    LAND_ON_EXIT=true
+    sleep "$TAKEOFF_SETTLE_SEC"
+    takeoff_pose="$(pose_xyz)"
+    takeoff_mavros_pose="$(mavros_pose_xyz)"
+    echo "Post-takeoff AirSim pose: $takeoff_pose"
+    echo "Post-takeoff MAVROS pose: $takeoff_mavros_pose"
+
+    if [ "$ENABLE_ARDU_COMPAT" = "true" ]; then
+        echo "Running /ap pose/cmd_vel closed-loop probe..."
+        ros2 run airsim_ros2_bridge ap_pose_cmdvel_probe --ros-args \
+            -p target_dx:="$PROBE_TARGET_DX" \
+            -p target_dy:="$PROBE_TARGET_DY" \
+            -p target_dz:="$PROBE_TARGET_DZ" \
+            -p max_speed:="$MOVE_SPEED_X" \
+            -p tolerance:="$PROBE_TOLERANCE" \
+            -p max_duration_sec:="$PROBE_MAX_DURATION_SEC"
+    else
+        echo "Publishing /${MAVROS_NAMESPACE}/setpoint_velocity/cmd_vel_unstamped..."
+        publish_count="$(python3 - "$MOVE_DURATION_SEC" <<'PY'
 import math
 import sys
 
@@ -208,8 +338,36 @@ duration = float(sys.argv[1])
 print(max(1, math.ceil(duration * 5.0)))
 PY
 )"
-ros2 topic pub --times "$publish_count" -r 5 /ap/cmd_vel geometry_msgs/msg/Twist \
-    "{linear: {x: ${MOVE_SPEED_X}, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+        ros2 topic pub --times "$publish_count" -r 5 "/${MAVROS_NAMESPACE}/setpoint_velocity/cmd_vel_unstamped" geometry_msgs/msg/Twist \
+            "{linear: {x: ${MOVE_SPEED_X}, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+    fi
+
+    after_forward_pose="$(pose_xyz)"
+    after_forward_mavros_pose="$(mavros_pose_xyz)"
+    echo "Post-forward AirSim pose: $after_forward_pose"
+    echo "Post-forward MAVROS pose: $after_forward_mavros_pose"
+
+    call_tol_service "$LAND_SERVICE" "land"
+    LAND_ON_EXIT=false
+    sleep "$LAND_SETTLE_SEC"
+else
+    if [ "$ENABLE_ARDU_COMPAT" = "true" ]; then
+        command_topic="/ap/cmd_vel"
+    else
+        command_topic="/${MAVROS_NAMESPACE}/setpoint_velocity/cmd_vel_unstamped"
+    fi
+    echo "Publishing ${command_topic}..."
+    publish_count="$(python3 - "$MOVE_DURATION_SEC" <<'PY'
+import math
+import sys
+
+duration = float(sys.argv[1])
+print(max(1, math.ceil(duration * 5.0)))
+PY
+)"
+    ros2 topic pub --times "$publish_count" -r 5 "$command_topic" geometry_msgs/msg/Twist \
+        "{linear: {x: ${MOVE_SPEED_X}, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+fi
 
 after_pose="$(pose_xyz)"
 echo "Final AirSim pose: $after_pose"
@@ -217,8 +375,8 @@ echo "Final AirSim pose: $after_pose"
 if [ "$CONTROL_BACKEND" = "px4_mavros" ]; then
     after_mavros_pose="$(mavros_pose_xyz)"
     echo "Final MAVROS pose: $after_mavros_pose"
-    before_check_pose="$before_mavros_pose"
-    after_check_pose="$after_mavros_pose"
+    before_check_pose="$takeoff_mavros_pose"
+    after_check_pose="$after_forward_mavros_pose"
 else
     before_check_pose="$before_pose"
     after_check_pose="$after_pose"

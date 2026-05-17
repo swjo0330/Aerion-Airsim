@@ -26,6 +26,55 @@ The current verified setup is:
 - `Drone0` exposes ArduPilot-compatible `/ap/*` aliases.
 - `Drone0` and `Drone1` keep drone-scoped topics under `/DroneN/...`.
 
+## MAVROS standard check
+
+The bridge intentionally mirrors MAVROS plugin namespaces under each vehicle and
+under each instance namespace:
+
+```text
+/DroneN/mavros/...
+/mavrosN/...
+```
+
+This follows the MAVROS plugin convention where plugin-private `~` names expand
+under the MAVROS node namespace. The checked standard surface is:
+
+| AERION topic suffix | MAVROS plugin basis | Status |
+| --- | --- | --- |
+| `local_position/pose` | `local_position` publisher `~/pose` | Standard-compatible |
+| `local_position/pose_cov` | `local_position` publisher `~/pose_cov` | Standard-compatible |
+| `local_position/odom` | `local_position` publisher `~/odom` | Standard-compatible |
+| `local_position/velocity_local` | `local_position` publisher `~/velocity_local` | Standard-compatible |
+| `local_position/velocity_body` | `local_position` publisher `~/velocity_body` | Standard-compatible name; body velocity is yaw-only synthetic |
+| `global_position/global` | `global_position` publisher `~/global` | Standard-compatible name; GPS is synthesized from local pose |
+| `global_position/local` | `global_position` publisher `~/local` | Standard-compatible name; data is synthesized |
+| `global_position/raw/fix` | `global_position` publisher `~/raw/fix` | Standard-compatible name; data is synthesized |
+| `global_position/rel_alt` | `global_position` publisher `~/rel_alt` | Standard-compatible |
+| `global_position/compass_hdg` | `global_position` publisher `~/compass_hdg` | Standard-compatible |
+| `imu/data` | `imu` publisher `~/data` | Standard-compatible name; synthetic IMU |
+| `imu/data_raw` | `imu` publisher `~/data_raw` | Standard-compatible name; synthetic IMU |
+| `battery` | `sys_status` publisher `battery` | Standard-compatible name; synthetic battery |
+| `state` | `sys_status` publisher `state` | Standard-compatible when `mavros_msgs` is installed |
+| `extended_state` | `sys_status` publisher `extended_state` | Standard-compatible when `mavros_msgs` is installed |
+| `set_mode` | `sys_status` service `set_mode` | Standard-compatible when `mavros_msgs` is installed |
+| `cmd/arming` | `command` service `~/arming` | Standard-compatible when `mavros_msgs` is installed |
+| `cmd/takeoff` | `command` service `~/takeoff` | Standard-compatible when `mavros_msgs` is installed |
+| `cmd/land` | `command` service `~/land` | Standard-compatible when `mavros_msgs` is installed |
+| `cmd/command` | `command` service `~/command` | Standard-compatible when `mavros_msgs` is installed |
+| `setpoint_velocity/cmd_vel` | `setpoint_velocity` subscriber `~/cmd_vel` | Standard-compatible |
+| `setpoint_velocity/cmd_vel_unstamped` | `setpoint_velocity` subscriber `~/cmd_vel_unstamped` | Standard-compatible |
+| `setpoint_position/local` | `setpoint_position` subscriber `~/local` | Standard-compatible |
+
+Reference sources:
+
+- MAVROS local_position plugin: https://mavros.readthedocs.io/en/latest/plugins/std/local_position/
+- MAVROS global_position plugin: https://mavros.readthedocs.io/en/latest/plugins/std/global_position/
+- MAVROS imu plugin: https://mavros.readthedocs.io/en/latest/plugins/std/imu/
+- MAVROS sys_status plugin: https://mavros.readthedocs.io/en/latest/plugins/std/sys_status/
+- MAVROS command plugin: https://mavros.readthedocs.io/en/latest/plugins/std/command/
+- MAVROS setpoint_velocity plugin: https://mavros.readthedocs.io/en/latest/plugins/std/setpoint_velocity/
+- MAVROS setpoint_position plugin: https://mavros.readthedocs.io/en/latest/plugins/std/setpoint_position/
+
 ## Verified bridge launch
 
 Use the helper script when running from the verified WSL workspace:
@@ -42,6 +91,10 @@ source /opt/ros/humble/setup.bash
 source install/setup.bash
 
 ros2 run airsim_ros2_bridge bridge_node --ros-args \
+  -r __node:=airsim_bridge_Drone0 \
+  -p vehicle_name:=Drone0 \
+  -p vehicle_index:=0 \
+  -p mavros_instance_namespace:=mavros0 \
   -p airsim_ip:=172.23.80.1 \
   -p airsim_port:=41451 \
   -p enable_camera:=false \
@@ -53,10 +106,87 @@ ros2 run airsim_ros2_bridge bridge_node --ros-args \
   -p airsim_timeout_sec:=2.0
 ```
 
+Run another vehicle as a separate bridge instance by changing only the vehicle,
+index, MAVROS namespace, and node name:
+
+```bash
+VEHICLE_NAME=Drone1 VEHICLE_INDEX=1 MAVROS_NAMESPACE=mavros1 \
+  ENABLE_ARDU_COMPAT=false scripts/run_airsim_ros2_bridge.sh
+```
+
+Run N bridge instances:
+
+```bash
+DRONE_COUNT=3 scripts/run_airsim_ros2_bridge_instances.sh
+```
+
+This starts:
+
+```text
+Drone0 -> /mavros0
+Drone1 -> /mavros1
+Drone2 -> /mavros2
+```
+
+Only one instance should expose the top-level `/ap/*` and `/mavros/*` aliases.
+The helper keeps those aliases on `Drone0` by default and disables them for the
+other vehicles.
+
+## Dynamic drone-count procedure
+
+Use one count consistently across AirSim settings, PX4/MAVROS, and bridge
+instances.
+
+### SimpleFlight-only loop
+
+Use this when you only need AirSim vehicles plus ROS bridge topics:
+
+```bash
+cd ~/aerion_ros2_ws/src/airsim_ros2_bridge
+python3 scripts/generate_settings.py --firmware simpleflight --drones 3 --output settings/simpleflight_3drones.json
+```
+
+Copy the generated JSON to the AirSim settings path used by Unreal:
+
+```text
+~/Documents/AirSim/settings.json
+```
+
+Then launch the bridge instances:
+
+```bash
+DRONE_COUNT=3 scripts/run_airsim_ros2_bridge_instances.sh
+```
+
+### PX4/MAVROS loop
+
+Use this when each AirSim drone must pair with a PX4 SITL and a real MAVROS
+namespace.
+
+```bash
+cd ~/aerion_ros2_ws/src/airsim_ros2_bridge
+python3 scripts/generate_settings.py --firmware px4 --drones 3 --output settings/px4_3drones.json
+DRONE_COUNT=3 scripts/launch_px4_instances.sh
+DRONE_COUNT=3 scripts/launch_mavros_px4_instances.sh
+DRONE_COUNT=3 scripts/run_airsim_ros2_bridge_instances.sh
+```
+
+The standard index convention is:
+
+| Index | AirSim vehicle | MAVROS namespace | PX4 SysID | PX4 TCP | MAVROS FCU URL |
+| --- | --- | --- | --- | --- | --- |
+| `0` | `Drone0` | `/mavros0` | `1` | `4560` | `udp://:14540@127.0.0.1:14580` |
+| `1` | `Drone1` | `/mavros1` | `2` | `4561` | `udp://:14541@127.0.0.1:14581` |
+| `2` | `Drone2` | `/mavros2` | `3` | `4562` | `udp://:14542@127.0.0.1:14582` |
+| `N` | `DroneN` | `/mavrosN` | `N+1` | `4560+N` | `udp://:14540+N@127.0.0.1:14580+N` |
+
 ## Parameters
 
 | Parameter | Default | Purpose |
 | --- | --- | --- |
+| `vehicle_name` | `''` | Single AirSim vehicle to bridge in this process. When set, this node runs as one vehicle instance. |
+| `vehicle_index` | `-1` | Numeric instance index used to derive `/mavrosN` when `mavros_instance_namespace` is not set. |
+| `mavros_instance_namespace` | `''` | Explicit MAVROS instance alias such as `mavros0`, `mavros1`, or `mavros2`. |
 | `vehicle_names` | `['Drone0', 'Drone1']` | AirSim vehicle names to bridge. |
 | `airsim_ip` | `127.0.0.1` | AirSim RPC host. Use `172.23.80.1` from WSL in the current Windows setup. |
 | `airsim_port` | `41451` | AirSim RPC port. |
