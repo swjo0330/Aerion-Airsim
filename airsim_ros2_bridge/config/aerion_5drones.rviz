@@ -1,0 +1,130 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Reference Frame: map
+      Cell Size: 1
+      Plane Cell Count: 50
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Tree:
+        map: {}
+    # ===== 각 드론별 카메라 (Image) =====
+    - Class: rviz_default_plugins/Image
+      Name: drone1 camera
+      Topic:
+        Value: /drone1/camera/image
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Enabled: true
+    - Class: rviz_default_plugins/Image
+      Name: drone2 camera
+      Topic:
+        Value: /drone2/camera/image
+        Reliability Policy: Best Effort
+      Enabled: false
+    - Class: rviz_default_plugins/Image
+      Name: drone3 camera
+      Topic:
+        Value: /drone3/camera/image
+        Reliability Policy: Best Effort
+      Enabled: false
+    - Class: rviz_default_plugins/Image
+      Name: drone4 camera
+      Topic:
+        Value: /drone4/camera/image
+        Reliability Policy: Best Effort
+      Enabled: false
+    - Class: rviz_default_plugins/Image
+      Name: drone5 camera
+      Topic:
+        Value: /drone5/camera/image
+        Reliability Policy: Best Effort
+      Enabled: false
+    # ===== 각 드론별 위치 (Pose) =====
+    - Class: rviz_default_plugins/Pose
+      Name: drone1 pose
+      Topic:
+        Value: /drone1/mavros/local_position/pose
+      Color: 25; 255; 0
+      Enabled: true
+    - Class: rviz_default_plugins/Pose
+      Name: drone2 pose
+      Topic:
+        Value: /drone2/mavros/local_position/pose
+      Color: 255; 170; 0
+      Enabled: true
+    - Class: rviz_default_plugins/Pose
+      Name: drone3 pose
+      Topic:
+        Value: /drone3/mavros/local_position/pose
+      Color: 255; 0; 0
+      Enabled: true
+    - Class: rviz_default_plugins/Pose
+      Name: drone4 pose
+      Topic:
+        Value: /drone4/mavros/local_position/pose
+      Color: 0; 170; 255
+      Enabled: true
+    - Class: rviz_default_plugins/Pose
+      Name: drone5 pose
+      Topic:
+        Value: /drone5/mavros/local_position/pose
+      Color: 255; 0; 255
+      Enabled: true
+    # ===== 거리센서 (Range, 드론1만 기본 활성) =====
+    - Class: rviz_default_plugins/Range
+      Name: drone1 range front
+      Topic:
+        Value: /drone1/range/front
+      Color: 255; 255; 0
+      Enabled: true
+    - Class: rviz_default_plugins/Range
+      Name: drone1 range left
+      Topic:
+        Value: /drone1/range/left
+      Color: 0; 255; 255
+      Enabled: true
+    - Class: rviz_default_plugins/Range
+      Name: drone1 range right
+      Topic:
+        Value: /drone1/range/right
+      Color: 255; 0; 255
+      Enabled: true
+    # ===== Leader pose (formation 진행 시) =====
+    - Class: rviz_default_plugins/Pose
+      Name: leader pose
+      Topic:
+        Value: /aerion/formation/leader_pose
+      Color: 255; 255; 255
+      Shaft Length: 1.0
+      Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 30
+      Focal Point:
+        X: 0
+        Y: -5
+        Z: 5
+      Pitch: 0.5
+      Yaw: 0.785

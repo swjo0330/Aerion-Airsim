@@ -31,9 +31,11 @@ PASS 기준:
 """
 
 import argparse
+import json
 import subprocess
 import sys
-from typing import List, Tuple
+import time
+from typing import Dict, List, Tuple
 
 # 토픽 패턴 (드론 번호 미포함, 검증 시 prefix 추가)
 TOPIC_PATTERNS = [
@@ -88,28 +90,50 @@ def measure_hz(topic: str, duration: float = 5.0) -> float:
         return 0.0
 
 
-def verify_drone(drone_idx: int, all_topics: List[str], hz_overrides: dict) -> Tuple[int, int, List[str]]:
-    """한 드론의 모든 표준 토픽 검증. (pass_count, total, fail_messages)"""
+def verify_drone(drone_idx: int, all_topics: List[str], hz_overrides: dict,
+                 measure_duration: float = 5.0) -> Tuple[int, int, List[str], List[Dict]]:
+    """한 드론의 모든 표준 토픽 검증.
+
+    Returns:
+        (pass_count, total, fail_messages, per_topic_results)
+        per_topic_results: 각 토픽별 결과 dict (JSON 출력용)
+    """
     prefix = f'/drone{drone_idx}'
     passed, total = 0, len(TOPIC_PATTERNS)
     fails = []
+    results = []
     for suffix, category, default_min_hz in TOPIC_PATTERNS:
         topic = f'{prefix}/{suffix}'
         min_hz = hz_overrides.get(category, default_min_hz)
+        result = {
+            'drone': drone_idx,
+            'topic': topic,
+            'category': category,
+            'min_hz': min_hz,
+            'measured_hz': None,
+            'status': None,
+        }
         if topic not in all_topics:
             fails.append(f'    [MISS]   {topic}')
+            result['status'] = 'MISSING'
+            results.append(result)
             continue
         if min_hz <= 0.001:
-            # 명령 토픽 등 publish 안 해도 됨
             passed += 1
+            result['status'] = 'PRESENT'
+            results.append(result)
             continue
-        hz = measure_hz(topic, duration=5.0)
+        hz = measure_hz(topic, duration=measure_duration)
+        result['measured_hz'] = hz
         if hz >= min_hz:
             passed += 1
+            result['status'] = 'OK'
             print(f'    [OK {hz:6.2f}Hz ≥ {min_hz:.2f}]  {topic}')
         else:
+            result['status'] = 'LOW_HZ'
             fails.append(f'    [LOW {hz:6.2f}Hz < {min_hz:.2f}]  {topic}')
-    return passed, total, fails
+        results.append(result)
+    return passed, total, fails, results
 
 
 def main():
@@ -118,6 +142,10 @@ def main():
     p.add_argument('--hz-camera', type=float, default=5.0)
     p.add_argument('--hz-range',  type=float, default=15.0)
     p.add_argument('--hz-mavros', type=float, default=5.0)
+    p.add_argument('--json-out',  type=str, default=None,
+                   help='측정 결과를 JSON으로 저장 (없으면 stdout만)')
+    p.add_argument('--measure-duration', type=float, default=5.0,
+                   help='토픽당 hz 측정 시간 (초). 길수록 정확하나 전체 검증 시간 증가')
     args = p.parse_args()
 
     if args.drones < 1 or args.drones > 5:
@@ -140,15 +168,37 @@ def main():
 
     total_pass, total_count = 0, 0
     all_fails = []
+    all_results = []
+    t_start = time.time()
     for n in range(1, args.drones + 1):
         print(f'\n[verify] drone{n} 검증:')
-        p_, t, fails = verify_drone(n, all_topics, hz_overrides)
+        p_, t, fails, per = verify_drone(n, all_topics, hz_overrides, args.measure_duration)
         total_pass += p_
         total_count += t
         all_fails.extend([f'drone{n}: {f}' for f in fails])
+        all_results.extend(per)
+    elapsed = time.time() - t_start
+
+    summary = {
+        'pass': total_pass,
+        'total': total_count,
+        'pass_rate': total_pass / total_count if total_count else 0.0,
+        'elapsed_sec': elapsed,
+        'drones': args.drones,
+        'thresholds': hz_overrides,
+        'fails': all_fails,
+        'topics': all_results,
+    }
 
     print('\n' + '=' * 60)
-    print(f'[RESULT] PASS {total_pass}/{total_count} ({100*total_pass/total_count:.1f}%)')
+    print(f'[RESULT] PASS {total_pass}/{total_count} ({100*total_pass/total_count:.1f}%)  '
+          f'elapsed={elapsed:.1f}s')
+
+    if args.json_out:
+        with open(args.json_out, 'w') as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        print(f'[verify] JSON 결과 저장 → {args.json_out}')
+
     if all_fails:
         print('[FAIL 항목]')
         for f in all_fails:

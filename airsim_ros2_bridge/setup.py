@@ -12,6 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.rviz')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -21,6 +22,8 @@ setup(
             'ap_pose_cmdvel_probe = airsim_ros2_bridge.ap_pose_cmdvel_probe:main',
             # AERION Phase 4: 자체 구현 포메이션 노드 진입점.
             'aerion_formation = airsim_ros2_bridge.formation_node:main',
+            # AERION Phase 4: dummy leader_pose 자동 발행 (외부 mission planner 없는 단일 머신 시연).
+            'aerion_leader = airsim_ros2_bridge.leader_publisher:main',
         ],
     },
 )

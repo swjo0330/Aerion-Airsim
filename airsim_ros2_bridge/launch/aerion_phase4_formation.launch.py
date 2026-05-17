@@ -89,4 +89,35 @@ def generate_launch_description():
         }],
     )
 
-    return LaunchDescription(args + [OpaqueFunction(function=_build_bridges), formation])
+    # Leader publisher: 외부 mission planner가 없는 단일 머신 시연용.
+    # `enable_leader_publisher:=true` 일 때만 띄움. 사용자가 자체 mission planner를 가지면 끔.
+    leader_args = [
+        DeclareLaunchArgument('enable_leader_publisher', default_value='true',
+                              description='dummy leader_pose 자동 발행 노드 동시 기동 여부'),
+        DeclareLaunchArgument('leader_mode', default_value='static',
+                              description='static | circle | line'),
+        DeclareLaunchArgument('leader_init_z', default_value='5.0'),
+        DeclareLaunchArgument('leader_circle_radius', default_value='5.0'),
+        DeclareLaunchArgument('leader_circle_angular_vel', default_value='0.1'),
+    ]
+
+    leader = Node(
+        package='airsim_ros2_bridge',
+        executable='aerion_leader',
+        name='aerion_leader',
+        output='screen',
+        condition=__import__('launch.conditions', fromlist=['IfCondition']).IfCondition(
+            LaunchConfiguration('enable_leader_publisher')),
+        parameters=[{
+            'mode': LaunchConfiguration('leader_mode'),
+            'init_z': LaunchConfiguration('leader_init_z'),
+            'circle_radius': LaunchConfiguration('leader_circle_radius'),
+            'circle_angular_vel': LaunchConfiguration('leader_circle_angular_vel'),
+        }],
+    )
+
+    return LaunchDescription(args + leader_args + [
+        OpaqueFunction(function=_build_bridges),
+        formation,
+        leader,
+    ])
