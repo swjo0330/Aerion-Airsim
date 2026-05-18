@@ -1,14 +1,36 @@
+"""AERION airsim_ros2_bridge — 메인 노드 (드론 1대 = 프로세스 1개 패턴).
+
+본 모듈은 단일 vehicle에 대한 ROS2 노드 + AirSim RPC client + 토픽 발행자 라이프사이클을 묶음.
+멀티드론 환경에서는 이 노드를 N개 프로세스(`ros2 launch ... drone_count:=N`)로 spawn.
+
+설계 요지:
+  1. **1 드론 = 1 프로세스 패턴**: AirSim RPC IOLoop 경합 (microsoft/AirSim#2607) 회피.
+     한 드론의 RPC 타임아웃이 다른 드론에 영향 0. 노드별 CPU/메모리/로그 격리.
+  2. **`ThreadSafeAirSimClient`**: MultiThreadedExecutor에서 여러 콜백이 병렬 호출해도 RLock으로
+     RPC 직렬화 (`IOLoop is already running` 회피).
+  3. **`_resolve_vehicle_specs`**: vehicle_name(단수)이 비어있지 않으면 단일 vehicle 모드,
+     아니면 vehicle_names(복수) fallback. 멀티드론 launch는 단수 인자만 사용.
+  4. **세 발행자**: 단일 책임 원칙.
+     - CameraPublisher : RGB 카메라 (Phase 2 기본, 320x240 권장)
+     - RangePublisher  : 전/좌/우 거리센서 (Phase 2.2에서 추가, 충돌 회피용)
+     - DroneController : MAVROS 호환 토픽 + 명령 구독 + AirSim API 직접 제어
+  5. **`control_backend` 분기**:
+     - `airsim_direct` (default) : SimpleFlight 직접 제어 (Phase 2~4)
+     - `px4_mavros` : MAVROS setpoint publisher 통해 PX4 SITL 제어 (Phase 5+)
+
+진입점:
+  `ros2 run airsim_ros2_bridge bridge_node` 또는 launch 파일.
+  주요 launch: `aerion_single_drone.launch.py`, `aerion_multi_drone.launch.py`,
+              `aerion_phase4_formation.launch.py`, `aerion_phase5_px4.launch.py`.
+"""
+
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 import airsim
 import threading
 
-# AERION 토픽 발행자 3종:
-#   CameraPublisher : RGB 카메라 (Phase 2 기본, 320x240 권장)
-#   RangePublisher  : 전/좌/우 거리센서 (Phase 2.2에서 추가, 충돌 회피용)
-#   DroneController : MAVROS 호환 토픽 + 명령 구독 + AirSim API 직접 제어
-# 1 드론 = 1 프로세스 패턴 (AirSim RPC IOLoop 경합 회피)
+# AERION 토픽 발행자 3종 (단일 책임 원칙 — docs/ARCHITECTURE.md 참조)
 from airsim_ros2_bridge.camera_publisher import CameraPublisher
 from airsim_ros2_bridge.drone_controller import DroneController
 from airsim_ros2_bridge.range_publisher import RangePublisher
