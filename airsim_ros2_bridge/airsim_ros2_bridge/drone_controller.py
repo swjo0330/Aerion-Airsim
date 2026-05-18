@@ -27,6 +27,16 @@ class DroneController:
 
     Legacy /DroneN/cmd_* topics use AirSim/NED coordinates.
     MAVROS-compatible topics use ROS ENU coordinates and are converted to NED.
+
+    AERION 표준 (Phase 2~):
+      - 외부 노출 토픽은 모두 ROS ENU 좌표 (REP-103, REP-105). 본 모듈 안 `_ned_to_enu`/`_enu_to_ned`가
+        AirSim NED ↔ ROS ENU 변환을 책임. 외부 사용자는 ENU만 다룸.
+      - control_backend='airsim_direct' : SimpleFlight 직접 제어 (Phase 2~4 기본).
+      - control_backend='px4_mavros'   : MAVROS setpoint publisher 통해 PX4 SITL 제어 (Phase 5+).
+      - enable_ardu_compat=False default. True 시 ArduPilot 호환 alias 토픽(/ap/*, 글로벌 /mavros/*) 발행.
+        멀티드론 환경에서는 글로벌 alias가 노드별 충돌하므로 단일 드론 모드에서만 권장.
+      - kinematic_z_ned: velocity_control_mode='kinematic'에서 고도 고정값 (NED, 음수=위).
+      - mavros_instance_namespace: 멀티드론 시 mavros 인스턴스 분리용 (예: 'mavros0', 'mavros1').
     """
 
     def __init__(
