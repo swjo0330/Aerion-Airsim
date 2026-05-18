@@ -35,6 +35,9 @@ def _build_bridges(context, *args, **kwargs):
     enable_range = LaunchConfiguration('enable_range').perform(context).lower() == 'true'
     camera_fps = float(LaunchConfiguration('camera_fps').perform(context))
     range_publish_rate = float(LaunchConfiguration('range_publish_rate').perform(context))
+    # Windows+WSL 환경에서는 Windows host IP (예: 172.23.80.1) 명시 필요.
+    airsim_ip = LaunchConfiguration('airsim_ip').perform(context)
+    airsim_port = int(LaunchConfiguration('airsim_port').perform(context))
 
     bridges = []
     for n in range(1, drone_count + 1):
@@ -47,8 +50,8 @@ def _build_bridges(context, *args, **kwargs):
             output='screen',
             parameters=[{
                 'vehicle_name': vehicle,
-                'airsim_ip': '127.0.0.1',
-                'airsim_port': 41451,
+                'airsim_ip': airsim_ip,
+                'airsim_port': airsim_port,
                 'enable_camera': enable_camera,
                 'enable_range': enable_range,
                 'camera_fps': camera_fps,
@@ -75,6 +78,11 @@ def generate_launch_description():
         DeclareLaunchArgument('default_altitude', default_value='5.0',
                               description='ENU z (m). leader_pose 미수신 시 기본 고도'),
         DeclareLaunchArgument('obstacle_stop_dist', default_value='1.0'),
+        # Windows+WSL 환경 지원: airsim_ip를 Windows host IP로 override 가능.
+        # WSL bash에서: AIRSIM_IP=$(ip route show | grep default | awk '{print $3}')
+        DeclareLaunchArgument('airsim_ip', default_value='127.0.0.1',
+                              description='AirSim RPC server IP (Linux=127.0.0.1, Windows+WSL=host IP)'),
+        DeclareLaunchArgument('airsim_port', default_value='41451'),
     ]
 
     formation = Node(
