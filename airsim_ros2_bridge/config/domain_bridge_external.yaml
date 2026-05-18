@@ -1,0 +1,99 @@
+# AERION Phase 6 — domain_bridge config (외부 사용자용)
+#
+# 내부 도메인(시뮬레이션 + bridge + formation) = 42
+# 외부 도메인(read-only, Tailscale 외부 사용자) = 7
+#
+# 사용:
+#   ros2 run domain_bridge domain_bridge ~/airsim/airsim_ros2_bridge/config/domain_bridge_external.yaml
+#
+# 사전:
+#   - 외부 사용자 측에 CycloneDDS + Peer로 AERION 노트북 Tailscale IP(100.120.219.68) 등록
+#   - 양쪽 ros2 daemon stop/start 후 시작 (DOMAIN_ID 분리)
+#
+# 노출 정책: 화이트리스트만. MAVROS noisy 토픽(parameter events, raw IMU, log_transfer 등) 제외.
+# 카메라는 raw 그대로 노출(외부에서 image_transport_republisher로 compressed 변환 권장).
+#
+# 변경 이력:
+#   2026-05-18 v1: 최초 작성 (Phase 6 사전 자산, 미검증)
+
+name: aerion_external_bridge
+
+from_domain: 42
+to_domain: 7
+
+topics:
+  # ----- 드론 1~5: 상태/위치/카메라/거리센서 -----
+  /drone1/mavros/state:
+    type: mavros_msgs/msg/State
+    qos:
+      reliability: reliable
+      durability: volatile
+  /drone1/mavros/local_position/pose:
+    type: geometry_msgs/msg/PoseStamped
+    qos:
+      reliability: reliable
+  /drone1/mavros/local_position/odom:
+    type: nav_msgs/msg/Odometry
+    qos:
+      reliability: reliable
+  /drone1/mavros/global_position/global:
+    type: sensor_msgs/msg/NavSatFix
+    qos:
+      reliability: reliable
+  /drone1/camera/image:
+    type: sensor_msgs/msg/Image
+    qos:
+      reliability: best_effort
+      durability: volatile
+      depth: 1
+  /drone1/camera/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    qos:
+      reliability: reliable
+      durability: transient_local
+  /drone1/range/front:
+    type: sensor_msgs/msg/Range
+    qos:
+      reliability: best_effort
+  /drone1/range/left:
+    type: sensor_msgs/msg/Range
+    qos:
+      reliability: best_effort
+  /drone1/range/right:
+    type: sensor_msgs/msg/Range
+    qos:
+      reliability: best_effort
+
+  # drone2..drone5: drone1과 동일 패턴 (외부 사용자가 필요한 N대만 활성화)
+  # 운영 시 위 9개 토픽을 drone2..drone5에 복제. domain_bridge가 YAML 패턴 확장은 지원 안 함 →
+  # 별도 스크립트 `scripts/expand_domain_bridge_yaml.py`로 생성 권장.
+
+  # ----- 글로벌 (포메이션 + TF + 시계) -----
+  /aerion/formation/pattern:
+    type: std_msgs/msg/String
+    qos:
+      reliability: reliable
+      durability: transient_local
+  /aerion/formation/leader_pose:
+    type: geometry_msgs/msg/PoseStamped
+    qos:
+      reliability: reliable
+  /aerion/formation/status:
+    type: std_msgs/msg/String
+    qos:
+      reliability: reliable
+      depth: 1
+  /tf:
+    type: tf2_msgs/msg/TFMessage
+    qos:
+      reliability: reliable
+      depth: 100
+  /tf_static:
+    type: tf2_msgs/msg/TFMessage
+    qos:
+      reliability: reliable
+      durability: transient_local
+  /clock:
+    type: rosgraph_msgs/msg/Clock
+    qos:
+      reliability: reliable
