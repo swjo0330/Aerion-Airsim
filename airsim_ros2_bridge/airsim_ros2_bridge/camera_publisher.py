@@ -1,3 +1,22 @@
+"""AERION Phase 2~: 단일 드론 RGB 카메라 → ROS2 토픽 발행 모듈.
+
+설계 의도:
+  - 한 vehicle = 한 인스턴스 (1 드론 = 1 프로세스 패턴, AirSim RPC 격리).
+  - 카메라 폴링은 timer 기반 (ReentrantCallbackGroup → MultiThreadedExecutor에서 병렬 콜백 허용).
+  - AirSim RPC 50Hz 상한 안에서 카메라 + Range + DroneController가 공존하므로 카메라 권장 ~10Hz.
+  - 카메라 이름은 settings.json에 정의된 것 그대로 (`front_center` 기본). 일부 fork에서 `0`, `1` 같은
+    숫자 이름을 쓰는 경우 _resolve_camera_name 폴백.
+
+토픽 / 프레임:
+  Topic:  /{vehicle_name}/camera/{image,camera_info}
+  Frame:  {vehicle_name}_{camera_name}_optical  (현재. 향후 표준 `drone{N}/camera_optical_frame` 통일 검토)
+
+알려진 함정:
+  - AirSim RPC 동시 호출 시 'IOLoop is already running' (microsoft/AirSim#2607). ThreadSafeAirSimClient
+    (bridge_node.py 안)이 RLock으로 직렬화. 본 모듈은 단일 client 사용해 외부 격리 의존.
+  - simGetCameraInfo / simGetImages 의 vehicle_name 인자가 일부 fork에서 거부됨 → try/except 폴백.
+"""
+
 import airsim
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
@@ -7,7 +26,7 @@ from airsim_ros2_bridge.utils import build_camera_info, airsim_rgb_to_image_msg
 
 
 class CameraPublisher:
-    """Publishes camera image and info for a single drone."""
+    """단일 드론의 RGB 카메라(`front_center` 기본) → sensor_msgs/Image + CameraInfo 발행."""
 
     def __init__(
         self,
