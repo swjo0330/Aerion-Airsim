@@ -63,6 +63,27 @@ AERION 프로젝트의 ROS2 브릿지 패키지 변경 이력을 시간순으로
   - 이유: 차량/보행자 동적 액터 필요. 정적 맵 임포트로는 부족.
   - 베이스라인: UE5.5 + CARLA 0.10.0 + Colosseum 5.5. CarlaAir의 ASimWorldGameMode 합성 패턴 적용.
 
+### Round 8 추가 (Phase 5/6 사전 자산)
+
+- **`launch/aerion_phase5_px4.launch.py`** — Phase 5 PX4 SITL 5대 + MAVROS 5대 + bridge×5 + formation + leader + tf 통합 launch
+  - bridge `control_backend='px4_mavros'`, `mavros_instance_namespace='mavros{n-1}'`
+  - per-drone MAVROS 노드 (fcu_url `udp://:1455N@127.0.0.1:1454N`)
+- **`config/domain_bridge_external.yaml`** — Phase 6 외부 사용자 노출 (DOMAIN 42 → 7) 화이트리스트 + QoS
+- **`scripts/mavros_arm_all.py`** — Phase 5용 N대 MAVROS arm + OFFBOARD + takeoff (state connected 대기, service 호출)
+- **`settings/px4_5drones_phase5.json`** — PX4 SITL 5대 settings (TCP 4560~4564, MAVLink UDP 14555~14559)
+- **`setup.py`** — config/*.yaml glob 추가
+
+### Round 7 추가 (drone_controller 한국어 주석)
+
+- `drone_controller.py` 헤더 docstring 확장 — AERION 표준 (ENU 외부 노출, `_ned_to_enu`, control_backend 분기, enable_ardu_compat default 등) 명시
+
+### Round 5 + 6 추가 (문서 + 주석 보강)
+
+- **`README.md`** — 패키지 진입점, 빠른 시작 8단계, 알려진 함정 5개
+- **`docs/TOPIC_INTERFACE.md`** — 외부 사용자용 토픽 인터페이스 스펙 (단일 진실 출처: REP-103/105 + QoS + TF tree + domain_bridge)
+- `camera_publisher.py` 모듈 docstring (RPC 격리, ThreadSafeClient 의존, 폴백)
+- `utils.py` 모듈 docstring + fov_to_intrinsics 한국어 설명
+
 ### Round 4 추가 (Phase 3 시연 후 자율 모드)
 
 - **`airsim_ros2_bridge/tf_publisher.py`** — TF tree 발행 노드 신설
