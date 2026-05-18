@@ -25,7 +25,12 @@
 """
 
 import rclpy
-from rclpy.executors import MultiThreadedExecutor
+# 2026-05-18 v3: MultiThreadedExecutor → SingleThreadedExecutor 로 변경.
+# 이유: AirSim Tornado IOLoop는 thread-safe 안 함. ThreadSafeAirSimClient의 RLock으로도
+# IOLoop 자체 재진입은 막을 수 없음 (microsoft/AirSim#2607 잔재). MultiThread에서 카메라/range/pose
+# 콜백이 동시 실행 시 'IOLoop is already running' 대량 발생 → setpoint RPC도 fail → 포메이션 흔들림.
+# 단일 스레드는 throughput 감소가 있지만 1 드론 = 1 프로세스 패턴이라 N대 전체로는 N개 스레드 = N개 IOLoop.
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 import airsim
 import threading
@@ -237,7 +242,8 @@ class AirSimBridgeNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = AirSimBridgeNode()
-    executor = MultiThreadedExecutor(num_threads=4)
+    # SingleThreadedExecutor: AirSim Tornado IOLoop 재진입 회피 (위 import 주석 참조).
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
     try:
         executor.spin()

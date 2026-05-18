@@ -55,6 +55,9 @@ def _build_bridges(context, *args, **kwargs):
                 'range_publish_rate': range_publish_rate,
                 'enable_ardu_compat': False,
                 'control_backend': 'airsim_direct',
+                # 2026-05-18 v2: kinematic z 고도를 leader_pose default(5m ENU)와 정합.
+                # drone_controller는 NED(음수=위)라 ENU 5m = NED -5m.
+                'kinematic_z_ned': -5.0,
             }],
         ))
     return bridges
