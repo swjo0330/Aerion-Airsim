@@ -1,7 +1,7 @@
 {
   "_comment": "AERION Phase 5 \u2014 PX4 SITL 5\ub300 (Phase 4 SimpleFlight \uac80\uc99d \ud1b5\uacfc \ud6c4 \ubc31\uc5d4\ub4dc \uad50\uccb4\uc6a9).",
   "_comment2": "\uac01 \ub4dc\ub860: PX4Multirotor + TCP 4560~4564 SITL + UDP 14555~14559 MAVLink (MAVROS \uce21 fcu_url).",
-  "_comment3": "v5: EKF2_AID_MASK=0 + EKF2_GPS_CHECK=0 제거 (EKF2 fusion disable 원인). EKF2_HGT_REF=1 + COM_ARM_WO_GPS=1 + CBRK_* 유지.",
+  "_comment3": "v4: ControlPort 15040~ + COM_ARM_WO_GPS=1 + EKF2_AID_MASK=0 + EKF2_HGT_REF=1 (baro) + CBRK_* (safety bypass for SITL)",
   "_comment4": "\uc0ac\uc6a9 \uc804 PX4-Autopilot \ube4c\ub4dc + ./bin/px4 -i {0..4} -d etc \uc778\uc2a4\ud134\uc2a4 5\uac1c \uae30\ub3d9 \ud544\uc694.",
   "SettingsVersion": 1.2,
   "SimMode": "Multirotor",
@@ -58,7 +58,9 @@
         "LPE_LAT": 37.5665,
         "LPE_LON": 126.978,
         "COM_ARM_WO_GPS": 1,
+        "EKF2_AID_MASK": 0,
         "EKF2_HGT_REF": 1,
+        "EKF2_GPS_CHECK": 0,
         "CBRK_USB_CHK": 197848,
         "CBRK_IO_SAFETY": 22027,
         "CBRK_SUPPLY_CHK": 894281
@@ -116,7 +118,9 @@
         "NAV_DLL_ACT": 0,
         "COM_OBL_ACT": 1,
         "COM_ARM_WO_GPS": 1,
+        "EKF2_AID_MASK": 0,
         "EKF2_HGT_REF": 1,
+        "EKF2_GPS_CHECK": 0,
         "CBRK_USB_CHK": 197848,
         "CBRK_IO_SAFETY": 22027,
         "CBRK_SUPPLY_CHK": 894281
@@ -174,7 +178,9 @@
         "NAV_DLL_ACT": 0,
         "COM_OBL_ACT": 1,
         "COM_ARM_WO_GPS": 1,
+        "EKF2_AID_MASK": 0,
         "EKF2_HGT_REF": 1,
+        "EKF2_GPS_CHECK": 0,
         "CBRK_USB_CHK": 197848,
         "CBRK_IO_SAFETY": 22027,
         "CBRK_SUPPLY_CHK": 894281
@@ -232,7 +238,9 @@
         "NAV_DLL_ACT": 0,
         "COM_OBL_ACT": 1,
         "COM_ARM_WO_GPS": 1,
+        "EKF2_AID_MASK": 0,
         "EKF2_HGT_REF": 1,
+        "EKF2_GPS_CHECK": 0,
         "CBRK_USB_CHK": 197848,
         "CBRK_IO_SAFETY": 22027,
         "CBRK_SUPPLY_CHK": 894281
@@ -290,7 +298,9 @@
         "NAV_DLL_ACT": 0,
         "COM_OBL_ACT": 1,
         "COM_ARM_WO_GPS": 1,
+        "EKF2_AID_MASK": 0,
         "EKF2_HGT_REF": 1,
+        "EKF2_GPS_CHECK": 0,
         "CBRK_USB_CHK": 197848,
         "CBRK_IO_SAFETY": 22027,
         "CBRK_SUPPLY_CHK": 894281
