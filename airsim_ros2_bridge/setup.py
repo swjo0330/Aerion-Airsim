@@ -27,6 +27,8 @@ setup(
             'aerion_leader = airsim_ros2_bridge.leader_publisher:main',
             # AERION Phase 3+: TF tree publisher (map → droneN/odom → droneN/base_link → ...).
             'aerion_tf = airsim_ros2_bridge.tf_publisher:main',
+            # AERION Phase 4-Δ: 포메이션 데모 CLI (--demo morphing-cycle).
+            'aerion_formation_demo = airsim_ros2_bridge.formation_demo:main',
         ],
     },
 )
