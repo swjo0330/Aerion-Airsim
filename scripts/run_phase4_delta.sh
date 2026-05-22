@@ -120,12 +120,16 @@ done
 
 # ---------- Step 4: ROS2 launch (Phase 5 stack — MAVROS + bridge + formation + leader + tf) ----------
 log "[Step 4] ROS2 launch — MAVROS×$DRONE_COUNT + bridge×$DRONE_COUNT + formation + leader + tf"
+# ROS2 setup.bash 는 unbound vars (AMENT_TRACE_SETUP_FILES 등) 를 참조하므로
+# 본 스크립트의 set -u 를 일시 해제하고 source 후 복원 (표준 ROS2 패턴).
+set +u
 # shellcheck disable=SC1090
 source "$ROS_SETUP"
 [ -f "$WORKSPACE/install/setup.bash" ] && {
     # shellcheck disable=SC1090
     source "$WORKSPACE/install/setup.bash"
 }
+set -u
 
 LAUNCH_LOG="$LOG_DIR/launch_$(date +%Y%m%d_%H%M%S).log"
 # aerion_phase5_px4.launch.py 는 PX4 외부 가정 — 정확히 우리 시나리오.
