@@ -8,11 +8,21 @@ Verifies the Phase 4-Δ implementation — 3-drone baseline + 4 patterns + linea
 
 ## Quick start (통합 스크립트 — 추천)
 
-CARLA+AirSim 또는 AirSim-only 환경에서 3대 PX4 + MAVROS + Phase 4-Δ formation 을 한 번에 띄우는 orchestration 스크립트:
+CARLA+AirSim 또는 AirSim-only 환경에서 3대 PX4 + MAVROS + Phase 4-Δ formation 을 한 번에 띄우는 2-터미널 운영:
+
+**Terminal 1 — UE Editor**:
 
 ```bash
 cd ~/workspace/projects/aerion-airsim
-# 사전: UE Editor 별 터미널에서 살아있고 Play 직전 상태
+bash scripts/run_ue_blocksv2.sh
+# (Editor 로딩 후 GUI 의 ▶ Play 직접 누름)
+# CARLA 통합 환경이면: bash scripts/run_ue_blocksv2.sh /path/to/integrated.uproject
+```
+
+**Terminal 2 — Simulation orchestrator** (UE Play 직후 또는 5초 timeout 자동 진행):
+
+```bash
+cd ~/workspace/projects/aerion-airsim
 bash scripts/run_phase4_delta.sh
 ```
 
