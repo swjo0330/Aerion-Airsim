@@ -173,22 +173,42 @@ done
 # ---------- Step 5: arm + OFFBOARD + takeoff ----------
 log "[Step 5] arm + OFFBOARD + takeoff"
 ARM_SCRIPT="$WORKSPACE/airsim_ros2_bridge/scripts/mavros_arm_all.py"
+ARM_RESULT_LOG="$LOG_DIR/arm_attempt_$(date +%Y%m%d_%H%M%S).log"
+arm_attempt() {
+    # mavros_arm_all 는 fail 해도 exit 0 으로 끝나므로 stdout 의 "arm=N/M" 패턴으로 직접 판정.
+    # 0 = 모두 성공, 1 = 일부/전부 실패.
+    python3 "$ARM_SCRIPT" --drones "$DRONE_COUNT" --altitude 5.0 2>&1 | tee "$ARM_RESULT_LOG"
+    local n_armed
+    n_armed=$(grep -oE 'arm=[0-9]+/[0-9]+' "$ARM_RESULT_LOG" | tail -1 | awk -F'[=/]' '{print $2}')
+    [ "$n_armed" = "$DRONE_COUNT" ]
+}
+dump_preflight() {
+    for n in $(seq 0 $((DRONE_COUNT - 1))); do
+        [ -f "/tmp/px4_sitl_${n}.log" ] && {
+            echo "  --- /tmp/px4_sitl_${n}.log preflight 최근 10줄 ---"
+            grep -E 'Preflight|heading|GPS|baro|mag|EKF|arm' "/tmp/px4_sitl_${n}.log" \
+                | tail -10 | sed 's/^/    /'
+        }
+    done
+}
+
 if [ -f "$ARM_SCRIPT" ]; then
-    # arm 은 single attempt. heading 수렴 미흡 시 첫 시도 TEMPORARILY_REJECTED 가능.
-    # fail 시 15초 더 대기 후 1회 재시도 (heading + 기타 preflight 안정 시간 추가).
-    if ! python3 "$ARM_SCRIPT" --drones "$DRONE_COUNT" --altitude 5.0; then
-        warn "arm 1차 실패 — 15초 추가 대기 후 1회 재시도 (heading/EKF 수렴 시간)"
+    # 첫 시도 전 PX4 preflight 상태 미리 노출 (시간 절약).
+    log "  [Preflight pre-check] PX4 log 의 최근 Preflight 메시지:"
+    dump_preflight
+
+    if arm_attempt; then
+        log "  arm 성공"
+    else
+        warn "arm 1차 실패 — 15초 추가 대기 후 재시도"
         sleep 15
-        # arm fail 직전 PX4 preflight 메시지 tail 로 진단 힌트 출력
-        for n in $(seq 0 $((DRONE_COUNT - 1))); do
-            [ -f "/tmp/px4_sitl_${n}.log" ] && {
-                echo "  --- /tmp/px4_sitl_${n}.log preflight 최근 5줄 ---"
-                grep -E 'Preflight|heading|gps|baro|mag|ekf' "/tmp/px4_sitl_${n}.log" \
-                    | tail -5 | sed 's/^/    /'
-            }
-        done
-        python3 "$ARM_SCRIPT" --drones "$DRONE_COUNT" --altitude 5.0 || \
-            warn "arm 2차 실패 — preflight 미통과. 'COM_ARM_WO_GPS=1 + CBRK_*' 효과 미적용 가능성. PX4 log 확인."
+        log "  [Preflight re-check] 15초 후 PX4 상태:"
+        dump_preflight
+        if arm_attempt; then
+            log "  arm 재시도 성공"
+        else
+            warn "arm 2차 실패 — preflight 미통과. settings 에 EKF2_MAG_TYPE=1 + COM_ARM_EKF_YAW=0 + COM_PREARM_MODE=0 적용됐는지 확인. 또는 forced-arm magic(param2=21196) 검토."
+        fi
     fi
 else
     warn "mavros_arm_all.py 미존재. 수동 arm 명령:"

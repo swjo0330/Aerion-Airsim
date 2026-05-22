@@ -1,7 +1,7 @@
 {
   "_comment": "AERION Phase 4-Δ — PX4 SITL 3대 (issue #1538 RPC 4-thread safe margin).",
   "_comment2": "각 드론: PX4Multirotor + TCP 4560~4562 SITL + UDP 14555~14557 MAVLink (MAVROS 측 fcu_url).",
-  "_comment3": "v1 (3-drone, Phase 4-Δ): px4_5drones_phase5.json (v5) 의 drone1~3 만 추출. EKF param 동일.",
+  "_comment3": "v2 (3-drone, Phase 4-Δ): px4_5drones_phase5.json (v5) 의 drone1~3 + EKF2_MAG_TYPE=1 + COM_ARM_EKF_YAW=0 + COM_PREARM_MODE=0 (SITL heading invalid 우회).",
   "_comment4": "사용 전 PX4-Autopilot 빌드 + bash ~/airsim/scripts/launch_px4_instances.sh DRONE_COUNT=3 BACKGROUND_MODE=true.",
   "SettingsVersion": 1.2,
   "SimMode": "Multirotor",
@@ -61,7 +61,10 @@
         "EKF2_HGT_REF": 1,
         "CBRK_USB_CHK": 197848,
         "CBRK_IO_SAFETY": 22027,
-        "CBRK_SUPPLY_CHK": 894281
+        "CBRK_SUPPLY_CHK": 894281,
+        "EKF2_MAG_TYPE": 1,
+        "COM_ARM_EKF_YAW": 0,
+        "COM_PREARM_MODE": 0
       },
       "Cameras": {
         "front_center": {
@@ -119,7 +122,10 @@
         "EKF2_HGT_REF": 1,
         "CBRK_USB_CHK": 197848,
         "CBRK_IO_SAFETY": 22027,
-        "CBRK_SUPPLY_CHK": 894281
+        "CBRK_SUPPLY_CHK": 894281,
+        "EKF2_MAG_TYPE": 1,
+        "COM_ARM_EKF_YAW": 0,
+        "COM_PREARM_MODE": 0
       },
       "Cameras": {
         "front_center": {
@@ -177,7 +183,10 @@
         "EKF2_HGT_REF": 1,
         "CBRK_USB_CHK": 197848,
         "CBRK_IO_SAFETY": 22027,
-        "CBRK_SUPPLY_CHK": 894281
+        "CBRK_SUPPLY_CHK": 894281,
+        "EKF2_MAG_TYPE": 1,
+        "COM_ARM_EKF_YAW": 0,
+        "COM_PREARM_MODE": 0
       },
       "Cameras": {
         "front_center": {
