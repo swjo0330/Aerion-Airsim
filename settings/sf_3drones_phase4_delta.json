@@ -1,10 +1,9 @@
 {
   "_comment": "AERION Phase 4-Δ — SimpleFlight 3대 (PX4 stack 우회).",
   "_comment2": "각 드론: VehicleType=SimpleFlight + AirSim API 직접 제어 (mavros 미사용). bridge control_backend='airsim_direct' 와 호환.",
-  "_comment3": "v1 (3-drone, Phase 4-Δ SF fallback): PX4 헛수고를 피하기 위한 대체 backend. CARLA+AirSim 통합 환경에서도 동일 작동.",
+  "_comment3": "v2 (3-drone, Phase 4-Δ SF, ClockType 제거): SimpleFlight 는 default ScalableClock 사용 (SteppableClock 은 PX4 lockstep 전용). SteppableClock 이면 simContinueForTime 명시 호출 없을 시 시뮬 freeze.",
   "SettingsVersion": 1.2,
   "SimMode": "Multirotor",
-  "ClockType": "SteppableClock",
   "ViewMode": "SpringArmChase",
   "OriginGeopoint": {
     "Latitude": 37.5665,

@@ -1,33 +1,28 @@
 #!/usr/bin/env python3
-"""AERION Phase 4-Δ — 3-drone formation, clean slate runner.
+"""AERION Phase 4-Δ — 3-drone formation runner (AirSim 공식 패턴).
 
-ROS2 / mavros / formation_node / bridge_node 의 layered 구조를 우회하고 AirSim Python API
-하나로 직접 제어. 매 패턴 전환에서 `future.join()` 으로 도달 대기 → 명령 충돌 없이 안정.
+설계 원칙 (이전 누적 시도들의 실패에서 학습):
+  - AirSim Colosseum PythonClient/multirotor/multi_agent_drone.py 와 동일한 호출 패턴
+    그대로 사용. 추가 방어 (yaw_mode 명시, cancelLastTask, armDisarm 반복, future
+    timeout polling) 는 모두 제거 — 공식 예제에 없는 호출은 부작용만 만들었음.
+  - settings.json 의 ClockType: SteppableClock 은 PX4 lockstep 전용. SimpleFlight 는
+    default ScalableClock 을 써야 시뮬 시간이 자동 흐름. (이전엔 SteppableClock 이라
+    .moveToPositionAsync future 가 영원히 완료 안 되는 hang 가능성)
+  - 매 단계 명시적 print + getMultirotorState() 로 위치 보고 → 정확한 진단.
 
-전제:
-  - UE Editor 살아있고 ▶ Play 상태 (이전 시뮬레이션 진행 중이면 Stop → Play 다시)
-  - settings.json = ~/Documents/AirSim/settings.json (SimpleFlight 3-drone)
-    bash scripts/run_phase4_delta_sf.sh 의 Step 1 이 deploy 하거나, 직접:
-      cp settings/sf_3drones_phase4_delta.json ~/Documents/AirSim/settings.json
-  - airsim Python 패키지 (Colosseum/PythonClient/airsim) 설치됨
+흐름:
+  1. confirmConnection
+  2. 3대 enableApiControl + armDisarm + takeoffAsync 동시 → 모두 .join()
+  3. 3대 자기 spawn 위 5m 로 안정 hover → .join() + sleep(3)
+  4. 패턴 순환: 3대 동시 moveToPositionAsync → 모두 .join() → sleep(hold)
+  5. Ctrl+C → land + disarm
 
 Usage:
   python3 scripts/phase4_delta_simple.py
-  python3 scripts/phase4_delta_simple.py --drones 3 --hold-sec 8 \\
-      --patterns TRIANGLE,V3,COLUMN,DIAMOND3 --velocity 1.5
-
-Patterns (ENU 기준, leader 상대 offset; AirSim 내부 NED 변환은 z 만 부호 반전):
-
-  TRIANGLE: D1(0,0,0)   D2(-1.7,-1, 0)  D3(-1.7,+1, 0)    정삼각, 변 2m
-  V3:       D1(0,0,0)   D2(-1.5,-1.5,0) D3(-1.5,+1.5,0)  V 자
-  COLUMN:   D1(0,0,0)   D2(-2,0,0)      D3(-4,0,0)        종대
-  DIAMOND3: D1(0,0,+1)  D2(-1.5,-1, 0)  D3(-1.5,+1, 0)   수직 (D1 1m 위)
-
-Ctrl+C → land + disarm 후 종료.
+  python3 scripts/phase4_delta_simple.py --hold-sec 10 --velocity 1.5
 """
 
 import argparse
-import math
 import signal
 import sys
 import time
@@ -35,237 +30,155 @@ import time
 import airsim
 
 
-# ENU offset (leader 기준, m). AirSim NED 변환은 hover-target 계산 시 z 만 부호 반전.
-FORMATIONS_ENU = {
+# leader 기준 상대 offset (AirSim NED). AirSim 의 world 가 NED 이므로 z 음수 = 위.
+FORMATIONS_NED = {
     'TRIANGLE': [(0.0,  0.0, 0.0), (-1.7, -1.0, 0.0), (-1.7,  1.0, 0.0)],
     'V3':       [(0.0,  0.0, 0.0), (-1.5, -1.5, 0.0), (-1.5,  1.5, 0.0)],
     'COLUMN':   [(0.0,  0.0, 0.0), (-2.0,  0.0, 0.0), (-4.0,  0.0, 0.0)],
-    'DIAMOND3': [(0.0,  0.0, 1.0), (-1.5, -1.0, 0.0), (-1.5,  1.0, 0.0)],
+    # DIAMOND3: D1 이 1m 위 (NED z = -1)
+    'DIAMOND3': [(0.0,  0.0, -1.0), (-1.5, -1.0, 0.0), (-1.5,  1.0, 0.0)],
 }
 
-ALTITUDE_M = 5.0   # 이륙 고도 (ENU); AirSim NED z = -ALTITUDE_M
+ALTITUDE_M = 5.0   # 이륙 고도 (ENU). AirSim NED z = -ALTITUDE_M
 
 
-def enu_to_ned(x: float, y: float, z: float) -> tuple[float, float, float]:
-    """ENU → AirSim NED. (x 는 그대로, y 는 그대로, z 는 부호 반전.)
-
-    참고: 실제 ENU↔NED 는 (x_ned = y_enu, y_ned = x_enu, z_ned = -z_enu) 인 경우가
-    표준이지만 본 시연에서는 패턴 offset 이 leader 좌표계 기준이고 AirSim 의 world
-    좌표가 NED 라 z 만 부호 반전하면 충분 (xy 평면 회전은 leader 좌표계가 NED 와 동일).
-    """
-    return x, y, -z
+def pos_str(p) -> str:
+    return f'({p.x_val:+.2f}, {p.y_val:+.2f}, {p.z_val:+.2f})'
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description='AERION Phase 4-Δ — clean 3-drone formation runner.')
-    p.add_argument('--drones', type=int, default=3, help='드론 수 (1~3 권장, AirSim RPC 4-thread 한계 안)')
+    p = argparse.ArgumentParser(description='AERION Phase 4-Δ — clean AirSim formation runner.')
+    p.add_argument('--drones', type=int, default=3)
     p.add_argument('--ip', default='127.0.0.1')
     p.add_argument('--port', type=int, default=41451)
     p.add_argument('--patterns', default='TRIANGLE,V3,COLUMN,DIAMOND3',
                    help='쉼표 구분 패턴 순환 시퀀스')
     p.add_argument('--hold-sec', type=float, default=8.0,
                    help='패턴 도달 후 hover hold 시간 (s)')
-    p.add_argument('--leader-x-ned', type=float, default=0.0,
-                   help='leader x (AirSim NED, m). default 0 = drone1 spawn 근처')
-    p.add_argument('--leader-y-ned', type=float, default=0.0)
-    p.add_argument('--velocity', type=float, default=1.5,
-                   help='moveToPosition 속도 (m/s). 1.0~2.0 권장 (부드러운 추종)')
-    p.add_argument('--lookahead', type=float, default=2.0,
-                   help='moveToPosition lookahead (m). 0 보다 크면 곡선 추종.')
+    p.add_argument('--leader-x', type=float, default=0.0,
+                   help='leader x (NED, m). default 0 = drone1 spawn 근처')
+    p.add_argument('--leader-y', type=float, default=0.0)
+    p.add_argument('--velocity', type=float, default=2.0,
+                   help='moveToPosition 속도 (m/s)')
     p.add_argument('--prefix', default='drone',
                    help='vehicle key prefix (settings.json 의 vehicle key 와 일치)')
     p.add_argument('--cycles', type=int, default=0,
                    help='패턴 순환 횟수. 0 = 무한 (Ctrl+C 종료)')
-    p.add_argument('--move-timeout', type=float, default=20.0,
-                   help='패턴 당 각 드론 도달 timeout (s). 도달 못해도 cancel 후 다음 패턴 진행.')
     args = p.parse_args()
 
     drone_names = [f'{args.prefix}{i}' for i in range(1, args.drones + 1)]
     pattern_seq = [s.strip().upper() for s in args.patterns.split(',') if s.strip()]
-    pattern_seq = [s for s in pattern_seq if s in FORMATIONS_ENU]
+    pattern_seq = [s for s in pattern_seq if s in FORMATIONS_NED]
     if not pattern_seq:
-        print('ERROR: --patterns 에 유효한 패턴 없음. 가능: TRIANGLE,V3,COLUMN,DIAMOND3', file=sys.stderr)
+        print('ERROR: --patterns 에 유효한 패턴 없음. 가능: TRIANGLE,V3,COLUMN,DIAMOND3',
+              file=sys.stderr)
         return 1
 
     print('=' * 60)
-    print('  AERION Phase 4-Δ Simple Runner')
+    print('  AERION Phase 4-Δ Simple Runner (AirSim 공식 패턴)')
     print(f'    drones={drone_names}')
     print(f'    patterns={pattern_seq}')
-    print(f'    hold_sec={args.hold_sec}, velocity={args.velocity}, lookahead={args.lookahead}')
-    print(f'    leader NED=({args.leader_x_ned}, {args.leader_y_ned}, {-ALTITUDE_M})')
+    print(f'    leader NED=({args.leader_x}, {args.leader_y}, {-ALTITUDE_M})')
+    print(f'    velocity={args.velocity} m/s, hold={args.hold_sec}s')
     print('=' * 60)
 
-    # AirSim connection
+    # ---- AirSim connect ----
     c = airsim.MultirotorClient(ip=args.ip, port=args.port)
     c.confirmConnection()
     listed = c.listVehicles()
-    print(f'[connect] AirSim ping OK. vehicles in scene = {listed}')
-    missing = [v for v in drone_names if v not in listed]
-    if missing:
-        print(f'WARN: settings.json 에 정의됐지만 scene 에 spawn 안 됨: {missing}')
-        print('  → UE Editor Stop → Play 다시 후 재시도. 또는 --prefix 옵션 확인.')
+    print(f'\n[connect] ping OK. vehicles in scene = {listed}')
+    if not all(v in listed for v in drone_names):
+        missing = [v for v in drone_names if v not in listed]
+        print(f'WARN: {missing} 가 scene 에 없음. UE Stop/Play 다시 시도하거나 --prefix 확인.')
 
-    # Cleanup hook
+    # ---- Cleanup ----
     def cleanup(_sig=None, _frame=None):
-        print('\n[cleanup] land + disarm 진행...')
+        print('\n[cleanup] land + disarm...')
         try:
             fs = [c.landAsync(vehicle_name=v) for v in drone_names]
             for f in fs:
-                try:
-                    f.join()
-                except Exception:
-                    pass
+                try: f.join()
+                except: pass
         except Exception as e:
             print(f'  landAsync error: {e}')
         for v in drone_names:
             try:
                 c.armDisarm(False, vehicle_name=v)
                 c.enableApiControl(False, vehicle_name=v)
-            except Exception:
-                pass
+            except: pass
         print('[cleanup] 완료')
         sys.exit(0)
-
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
-    # Step 1: enable + arm (3대 모두 — RPC 직렬화 회피 위해 짧게 stagger)
-    print(f'\n[Step 1] enableApiControl + armDisarm × {args.drones}')
+    # ---- Step 1: enable + arm + takeoff (AirSim 공식 패턴) ----
+    print(f'\n[Step 1] enableApiControl + armDisarm + takeoffAsync × {len(drone_names)}')
     for v in drone_names:
         c.enableApiControl(True, vehicle_name=v)
         c.armDisarm(True, vehicle_name=v)
-        print(f'  {v} arm OK')
+        print(f'  {v} enableApi + arm OK')
+    takeoff_fs = [(v, c.takeoffAsync(vehicle_name=v)) for v in drone_names]
+    for v, f in takeoff_fs:
+        f.join()
+        state = c.getMultirotorState(vehicle_name=v)
+        print(f'  {v} takeoff done. pos NED = {pos_str(state.kinematics_estimated.position)}')
 
-    # Step 2: takeoff (동시 async)
-    print(f'\n[Step 2] takeoffAsync × {args.drones} (동시)')
-    take_fs = [(v, c.takeoffAsync(vehicle_name=v)) for v in drone_names]
-    for v, f in take_fs:
-        try:
-            f.join()
-            print(f'  {v} takeoff done')
-        except Exception as e:
-            print(f'  {v} takeoff error: {e}')
-
-    # Step 3: 각 드론 자기 spawn 위치 위 ALTITUDE_M 으로 올라가서 안정 hover
-    print(f'\n[Step 3] 각 드론 spawn 위치 위 {ALTITUDE_M}m 로 안정 hover (5초)')
-    fs_hover = []
+    # ---- Step 2: 자기 spawn 위 ALTITUDE_M 으로 안정 hover ----
+    print(f'\n[Step 2] 자기 spawn 위 {ALTITUDE_M}m 로 hover (속도 {args.velocity}m/s)')
+    hover_fs = []
     for i, v in enumerate(drone_names):
-        # spawn 위치는 settings.json 의 X=0/5/10 NED — 그 위 ALTITUDE_M 높이로 이동.
-        target_x = i * 5.0
-        target_y = 0.0
-        target_z = -ALTITUDE_M
-        fs_hover.append((v, c.moveToPositionAsync(
-            target_x, target_y, target_z,
-            args.velocity,
-            lookahead=args.lookahead,
-            adaptive_lookahead=1,
-            vehicle_name=v,
-        )))
-    for v, f in fs_hover:
-        try:
-            f.join()
-        except Exception as e:
-            print(f'  {v} hover-up error: {e}')
-    time.sleep(5.0)
-    print('  안정 hover 완료')
+        # settings.json 의 spawn X=0/5/10, Y=0 가정. 다른 spawn 이면 --leader-x 와 패턴 조정.
+        spawn_x_ned = i * 5.0
+        spawn_y_ned = 0.0
+        target_z_ned = -ALTITUDE_M
+        f = c.moveToPositionAsync(spawn_x_ned, spawn_y_ned, target_z_ned,
+                                   args.velocity, vehicle_name=v)
+        hover_fs.append((v, f))
+    for v, f in hover_fs:
+        f.join()
+        state = c.getMultirotorState(vehicle_name=v)
+        print(f'  {v} hover. pos NED = {pos_str(state.kinematics_estimated.position)}')
+    time.sleep(3.0)
+    print('  안정 hover 3초 완료')
 
-    # Step 4: 패턴 순환
-    print(f'\n[Step 4] 패턴 순환 시작 — Ctrl+C 종료')
-    leader_x = args.leader_x_ned
-    leader_y = args.leader_y_ned
+    # ---- Step 3: 패턴 순환 ----
+    print(f'\n[Step 3] 패턴 순환 시작 (Ctrl+C 종료)')
+    leader_x = args.leader_x
+    leader_y = args.leader_y
     leader_z = -ALTITUDE_M
-    # Fixed-yaw setting — drone 이 도달 판정 시 yaw 진동 없이 정지하도록 명시.
-    yaw_mode = airsim.YawMode(is_rate=False, yaw_or_rate=0.0)
-
-    def reacquire(v: str) -> None:
-        """매 패턴 명령 전 API control 만 재확인.
-
-        armDisarm(True) 와 cancelLastTask 는 절대 호출 금지:
-          - armDisarm(True) 가 이미 armed 상태에서 호출되면 AirSim SimpleFlight
-            의 motor 가 잠시 reset → 그 사이 free fall 로 추락.
-          - cancelLastTask 가 현재 hover 명령을 끊으면 새 명령 발행 사이의 짧은
-            틈에서 default 동작이 hover 가 아니라 free fall 일 수 있음.
-          - 이전 명령은 새 moveToPositionAsync 호출 시 AirSim 이 자동 override.
-        """
-        try:
-            c.enableApiControl(True, vehicle_name=v)
-        except Exception as e:
-            print(f'    [reacquire {v}] warn: {e}')
-
-    def wait_join_with_timeout(v: str, f, timeout_sec: float) -> bool:
-        """msgpackrpc future 는 .join() 에 timeout 인자 없음. wall-clock polling 으로
-        timeout 구현. timeout 초과 시 cancelLastTask 후 진행 (hang 방지)."""
-        t_start = time.time()
-        # AirSim future 가 비동기 RPC. 별 thread 에서 .join() 호출 + main 은 polling.
-        import threading
-        done = {'flag': False, 'err': None}
-        def _wait():
-            try:
-                f.join()
-            except Exception as e:
-                done['err'] = e
-            finally:
-                done['flag'] = True
-        t = threading.Thread(target=_wait, daemon=True)
-        t.start()
-        while not done['flag']:
-            if time.time() - t_start > timeout_sec:
-                print(f'    {v} join timeout ({timeout_sec}s) — cancel + 진행')
-                try:
-                    c.cancelLastTask(vehicle_name=v)
-                except Exception:
-                    pass
-                return False
-            time.sleep(0.1)
-        if done['err']:
-            print(f'    {v} move error: {done["err"]}')
-            return False
-        return True
-
-    cycle = 0
     idx = 0
+    cycle = 0
     while args.cycles == 0 or cycle < args.cycles:
         pat = pattern_seq[idx % len(pattern_seq)]
-        offsets_enu = FORMATIONS_ENU[pat]
+        offsets = FORMATIONS_NED[pat]
         print(f'\n  [pattern {idx+1} → {pat}]')
 
-        # 각 드론 목표 NED 계산
         targets = []
         for i, v in enumerate(drone_names):
-            if i >= len(offsets_enu):
+            if i >= len(offsets):
                 continue
-            ox_enu, oy_enu, oz_enu = offsets_enu[i]
-            ox_ned, oy_ned, oz_ned = enu_to_ned(ox_enu, oy_enu, oz_enu)
-            tx = leader_x + ox_ned
-            ty = leader_y + oy_ned
-            tz = leader_z + oz_ned
+            ox, oy, oz = offsets[i]
+            tx = leader_x + ox
+            ty = leader_y + oy
+            tz = leader_z + oz
             targets.append((v, tx, ty, tz))
-            print(f'    {v} → NED({tx:+.2f}, {ty:+.2f}, {tz:+.2f})')
+            print(f'    {v} target NED ({tx:+.2f}, {ty:+.2f}, {tz:+.2f})')
 
-        # 매 패턴 명령 직전 API control + arm 재확인 + 이전 명령 취소
-        for v, *_ in targets:
-            reacquire(v)
-
-        # 3대 동시 async 명령 발행, join 으로 도달 wait (timeout 20s)
-        fs = []
+        # 명령 send: 공식 패턴 그대로 (yaw_mode 명시 안 함, cancelLastTask 호출 안 함,
+        # armDisarm/enableApiControl 반복 호출 안 함). 새 moveToPositionAsync 가
+        # 이전 명령을 자동 override.
+        send_fs = []
         for v, tx, ty, tz in targets:
-            print(f'    [send] {v} moveToPositionAsync...')
-            f = c.moveToPositionAsync(
-                tx, ty, tz,
-                args.velocity,
-                lookahead=args.lookahead,
-                adaptive_lookahead=1,
-                yaw_mode=yaw_mode,
-                vehicle_name=v,
-            )
-            fs.append((v, f))
-        print(f'    [wait] 모든 드론 도달 대기 (max {args.move_timeout}s 각)...')
+            f = c.moveToPositionAsync(tx, ty, tz, args.velocity, vehicle_name=v)
+            send_fs.append((v, f))
+        print(f'    [send] {len(send_fs)} 드론 명령 발행. .join() 대기...')
 
-        for v, f in fs:
-            ok = wait_join_with_timeout(v, f, args.move_timeout)
-            print(f'    [arrived] {v}: {"OK" if ok else "timeout"}')
+        for v, f in send_fs:
+            f.join()
+            state = c.getMultirotorState(vehicle_name=v)
+            print(f'    [arrived] {v} pos NED = {pos_str(state.kinematics_estimated.position)}')
 
-        print(f'    [hold]   {args.hold_sec}s hover hold...')
+        print(f'    [hold] {args.hold_sec}s hover')
         time.sleep(args.hold_sec)
 
         idx += 1
@@ -274,7 +187,7 @@ def main() -> int:
             if args.cycles > 0:
                 print(f'  cycle {cycle}/{args.cycles} 완료')
 
-    print('\n[Step 5] 모든 cycle 완료. land + disarm 후 종료.')
+    print('\n[Step 4] cycle 완료. land + disarm')
     cleanup()
     return 0
 
