@@ -158,8 +158,8 @@ nohup ros2 launch airsim_ros2_bridge aerion_phase5_px4.launch.py \
 LAUNCH_PID=$!
 disown
 echo "  ros2 launch PID=$LAUNCH_PID, log=$LAUNCH_LOG"
-echo "  20초 대기 (mavros handshake + bridge ready)..."
-sleep 20
+echo "  45초 대기 (mavros handshake + bridge ready + PX4 EKF heading 수렴)..."
+sleep 45
 
 # mavros connected 확인
 echo "  mavros state per drone:"
@@ -174,8 +174,22 @@ done
 log "[Step 5] arm + OFFBOARD + takeoff"
 ARM_SCRIPT="$WORKSPACE/airsim_ros2_bridge/scripts/mavros_arm_all.py"
 if [ -f "$ARM_SCRIPT" ]; then
-    python3 "$ARM_SCRIPT" --drones "$DRONE_COUNT" --altitude 5.0 || \
-        warn "mavros_arm_all 일부 실패 — log 확인"
+    # arm 은 single attempt. heading 수렴 미흡 시 첫 시도 TEMPORARILY_REJECTED 가능.
+    # fail 시 15초 더 대기 후 1회 재시도 (heading + 기타 preflight 안정 시간 추가).
+    if ! python3 "$ARM_SCRIPT" --drones "$DRONE_COUNT" --altitude 5.0; then
+        warn "arm 1차 실패 — 15초 추가 대기 후 1회 재시도 (heading/EKF 수렴 시간)"
+        sleep 15
+        # arm fail 직전 PX4 preflight 메시지 tail 로 진단 힌트 출력
+        for n in $(seq 0 $((DRONE_COUNT - 1))); do
+            [ -f "/tmp/px4_sitl_${n}.log" ] && {
+                echo "  --- /tmp/px4_sitl_${n}.log preflight 최근 5줄 ---"
+                grep -E 'Preflight|heading|gps|baro|mag|ekf' "/tmp/px4_sitl_${n}.log" \
+                    | tail -5 | sed 's/^/    /'
+            }
+        done
+        python3 "$ARM_SCRIPT" --drones "$DRONE_COUNT" --altitude 5.0 || \
+            warn "arm 2차 실패 — preflight 미통과. 'COM_ARM_WO_GPS=1 + CBRK_*' 효과 미적용 가능성. PX4 log 확인."
+    fi
 else
     warn "mavros_arm_all.py 미존재. 수동 arm 명령:"
     for n in $(seq 1 "$DRONE_COUNT"); do
