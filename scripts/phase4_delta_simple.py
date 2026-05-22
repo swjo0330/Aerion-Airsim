@@ -76,6 +76,8 @@ def main() -> int:
                    help='vehicle key prefix (settings.json 의 vehicle key 와 일치)')
     p.add_argument('--cycles', type=int, default=0,
                    help='패턴 순환 횟수. 0 = 무한 (Ctrl+C 종료)')
+    p.add_argument('--move-timeout', type=float, default=20.0,
+                   help='패턴 당 각 드론 도달 timeout (s). 도달 못해도 cancel 후 다음 패턴 진행.')
     args = p.parse_args()
 
     drone_names = [f'{args.prefix}{i}' for i in range(1, args.drones + 1)]
@@ -172,6 +174,48 @@ def main() -> int:
     leader_x = args.leader_x_ned
     leader_y = args.leader_y_ned
     leader_z = -ALTITUDE_M
+    # Fixed-yaw setting — drone 이 도달 판정 시 yaw 진동 없이 정지하도록 명시.
+    yaw_mode = airsim.YawMode(is_rate=False, yaw_or_rate=0.0)
+
+    def reacquire(v: str) -> None:
+        """매 패턴 명령 전 API control + arm 재확인 (AirSim 의 idle release 방지)."""
+        try:
+            c.enableApiControl(True, vehicle_name=v)
+            c.armDisarm(True, vehicle_name=v)
+            c.cancelLastTask(vehicle_name=v)
+        except Exception as e:
+            print(f'    [reacquire {v}] warn: {e}')
+
+    def wait_join_with_timeout(v: str, f, timeout_sec: float) -> bool:
+        """msgpackrpc future 는 .join() 에 timeout 인자 없음. wall-clock polling 으로
+        timeout 구현. timeout 초과 시 cancelLastTask 후 진행 (hang 방지)."""
+        t_start = time.time()
+        # AirSim future 가 비동기 RPC. 별 thread 에서 .join() 호출 + main 은 polling.
+        import threading
+        done = {'flag': False, 'err': None}
+        def _wait():
+            try:
+                f.join()
+            except Exception as e:
+                done['err'] = e
+            finally:
+                done['flag'] = True
+        t = threading.Thread(target=_wait, daemon=True)
+        t.start()
+        while not done['flag']:
+            if time.time() - t_start > timeout_sec:
+                print(f'    {v} join timeout ({timeout_sec}s) — cancel + 진행')
+                try:
+                    c.cancelLastTask(vehicle_name=v)
+                except Exception:
+                    pass
+                return False
+            time.sleep(0.1)
+        if done['err']:
+            print(f'    {v} move error: {done["err"]}')
+            return False
+        return True
+
     cycle = 0
     idx = 0
     while args.cycles == 0 or cycle < args.cycles:
@@ -192,25 +236,30 @@ def main() -> int:
             targets.append((v, tx, ty, tz))
             print(f'    {v} → NED({tx:+.2f}, {ty:+.2f}, {tz:+.2f})')
 
-        # 3대 동시 async 명령 발행, join 으로 도달 wait
+        # 매 패턴 명령 직전 API control + arm 재확인 + 이전 명령 취소
+        for v, *_ in targets:
+            reacquire(v)
+
+        # 3대 동시 async 명령 발행, join 으로 도달 wait (timeout 20s)
         fs = []
         for v, tx, ty, tz in targets:
+            print(f'    [send] {v} moveToPositionAsync...')
             f = c.moveToPositionAsync(
                 tx, ty, tz,
                 args.velocity,
                 lookahead=args.lookahead,
                 adaptive_lookahead=1,
+                yaw_mode=yaw_mode,
                 vehicle_name=v,
             )
             fs.append((v, f))
+        print(f'    [wait] 모든 드론 도달 대기 (max {args.move_timeout}s 각)...')
 
-        # 도달 대기 (각 future join). AirSim API 가 도달 시 future 완료.
         for v, f in fs:
-            try:
-                f.join()
-            except Exception as e:
-                print(f'    {v} move error: {e}')
-        print(f'    도달. {args.hold_sec}s hover hold...')
+            ok = wait_join_with_timeout(v, f, args.move_timeout)
+            print(f'    [arrived] {v}: {"OK" if ok else "timeout"}')
+
+        print(f'    [hold]   {args.hold_sec}s hover hold...')
         time.sleep(args.hold_sec)
 
         idx += 1
