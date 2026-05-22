@@ -188,25 +188,41 @@ def main() -> int:
             targets.append((v, tx, ty, tz))
             print(f'    {v} world target ({tx:+.2f}, {ty:+.2f}, {tz:+.2f})')
 
-        # 매 명령 직전 enableApiControl(True) 재assert.
-        # 우리 환경에서 패턴 반복 호출 시 drone2/3 의 API control 이 release 되는 패턴
-        # 관찰됨 (multi_agent_drone.py 공식 예제는 단일 명령만 — 반복 호출 미검증 코드
-        # path). enableApiControl 단독 호출은 hover 명령 안 끊으므로 안전.
+        # AirSim Issue #991: SimpleFlight 의 hover() 가 버그 — 호출 후 drone 추락.
+        # AirSim Issue #4421: moveToPositionAsync 완료 후 drone shaky behavior.
+        # → 도달 후 명령 stream 끊기면 SimpleFlight 가 hover 못함 → 추락.
+        # 또한 enableApiControl(True) 매번 호출이 vehicle controller 를 disrupt →
+        # 그 vehicle 만 추락 ("하나씩 추락" 패턴).
+        #
+        # Fix: enableApiControl 재호출 제거 + hold 동안 1Hz 로 같은 target 으로
+        # moveToPositionAsync 를 .join() 없이 재발행 → 명령 stream 유지 → drone 안정.
+        #
+        # 명령 stream 이 유지되면 API control 도 release 안 됨 → drone2/3 freeze 도 회피.
         send_fs = []
         for v, tx, ty, tz in targets:
-            c.enableApiControl(True, vehicle_name=v)
             f = c.moveToPositionAsync(tx, ty, tz, args.velocity, vehicle_name=v)
-            send_fs.append((v, f))
+            send_fs.append((v, f, (tx, ty, tz)))
         print(f'    [send] {len(send_fs)} 드론 명령 발행. .join() 대기...')
 
-        for v, f in send_fs:
+        for v, f, _ in send_fs:
             f.join()
             state = c.getMultirotorState(vehicle_name=v)
             p = state.kinematics_estimated.position
             print(f'    [arrived] {v} world = ({p.x_val:+.2f}, {p.y_val:+.2f}, {p.z_val:+.2f})')
 
-        print(f'    [hold] {args.hold_sec}s hover')
-        time.sleep(args.hold_sec)
+        # Hold 동안 명령 stream 유지 — 1Hz 로 같은 target 재발행 (.join() 안 함).
+        # SimpleFlight 의 buggy hover 우회.
+        hold_start = time.time()
+        hold_tick = 0
+        while time.time() - hold_start < args.hold_sec:
+            for v, _, (tx, ty, tz) in send_fs:
+                # join 안 함 → 명령만 발행. 같은 target 이므로 drone 은 그 위치에서 유지.
+                c.moveToPositionAsync(tx, ty, tz, args.velocity, vehicle_name=v)
+            hold_tick += 1
+            # 첫 tick 만 상세 출력 (이후 spam 방지)
+            if hold_tick == 1:
+                print(f'    [hold-stream] {args.hold_sec}s 동안 1Hz target 재발행...')
+            time.sleep(1.0)
 
         idx += 1
         if idx % len(pattern_seq) == 0:
