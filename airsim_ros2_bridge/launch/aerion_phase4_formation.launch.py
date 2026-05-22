@@ -1,4 +1,4 @@
-"""AERION Phase 4 — 5대 드론 + 포메이션 노드 통합 launch.
+"""AERION Phase 4-Δ — N대 드론 (기본 3) + 포메이션 노드 통합 launch.
 
 흐름:
   1. (사전 외부) UE Play + sf_5drones_phase3.json deploy + airsim_arm_all.py 실행 (모든 드론 takeoff 완료 상태)
@@ -6,7 +6,7 @@
   3. (외부) /aerion/formation/{pattern, leader_pose} 토픽으로 명령
 
 Usage:
-    ros2 launch airsim_ros2_bridge aerion_phase4_formation.launch.py drone_count:=5 default_pattern:=LINE
+    ros2 launch airsim_ros2_bridge aerion_phase4_formation.launch.py drone_count:=3 default_pattern:=TRIANGLE
 
 사전:
     - 5대 settings.json deploy됨 (vehicle key drone1..drone5)
@@ -18,6 +18,7 @@ Usage:
 
 변경 이력:
     2026-05-18 v1: 최초 작성 (Phase 4 통합 launch)
+    2026-05-22 v2: Phase 4-Δ — drone_count default 5→3, default_pattern LINE→TRIANGLE, morph_duration_sec 추가
 """
 
 from launch import LaunchDescription
@@ -68,9 +69,14 @@ def _build_bridges(context, *args, **kwargs):
 
 def generate_launch_description():
     args = [
-        DeclareLaunchArgument('drone_count', default_value='5'),
-        DeclareLaunchArgument('default_pattern', default_value='LINE',
-                              description='LINE | DIAMOND | ARROW | V | ECHELON'),
+        DeclareLaunchArgument(
+            'drone_count', default_value='3',
+            description='Number of drones (1~5). Phase 4-Δ default: 3 (AirSim issue #1538 RPC 4-thread safe margin). 5 = deprecated v2 fallback.',
+        ),
+        DeclareLaunchArgument(
+            'default_pattern', default_value='TRIANGLE',
+            description='Initial formation pattern. drone_count != 5: TRIANGLE | V3 | COLUMN | DIAMOND3. drone_count = 5: LINE | DIAMOND | ARROW | V | ECHELON (deprecated).',
+        ),
         DeclareLaunchArgument('enable_camera', default_value='true'),
         DeclareLaunchArgument('enable_range', default_value='true'),
         DeclareLaunchArgument('camera_fps', default_value='10.0'),
@@ -78,6 +84,10 @@ def generate_launch_description():
         DeclareLaunchArgument('default_altitude', default_value='5.0',
                               description='ENU z (m). leader_pose 미수신 시 기본 고도'),
         DeclareLaunchArgument('obstacle_stop_dist', default_value='1.0'),
+        DeclareLaunchArgument(
+            'morph_duration_sec', default_value='1.5',
+            description='Pattern-to-pattern morphing duration in seconds (linear interp).',
+        ),
         # Windows+WSL 환경 지원: airsim_ip를 Windows host IP로 override 가능.
         # WSL bash에서: AIRSIM_IP=$(ip route show | grep default | awk '{print $3}')
         DeclareLaunchArgument('airsim_ip', default_value='127.0.0.1',
@@ -95,6 +105,7 @@ def generate_launch_description():
             'default_pattern': LaunchConfiguration('default_pattern'),
             'default_altitude': LaunchConfiguration('default_altitude'),
             'obstacle_stop_dist': LaunchConfiguration('obstacle_stop_dist'),
+            'morph_duration_sec': LaunchConfiguration('morph_duration_sec'),
             'publish_rate': 20.0,
             'enable_arrival_check': True,
         }],
