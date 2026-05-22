@@ -111,8 +111,13 @@ class MorphState:
     paused_elapsed: float = 0.0
     paused_at_sec: Optional[float] = None
 
+    def __post_init__(self):
+        if self.duration <= 0:
+            raise ValueError(f'MorphState.duration must be > 0, got {self.duration}')
+
     def progress(self, now_sec: float) -> float:
         if self.paused_at_sec is not None:
+            # paused 중: paused_at 시점의 elapsed 로 동결. paused_elapsed 는 누적된 pause 시간이므로 elapsed 에서 차감.
             elapsed = (self.paused_at_sec - self.t0_sec) - self.paused_elapsed
         else:
             elapsed = (now_sec - self.t0_sec) - self.paused_elapsed

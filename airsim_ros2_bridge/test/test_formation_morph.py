@@ -59,3 +59,25 @@ def test_resume_without_pause_is_noop():
     ms = MorphState(src_pattern='TRIANGLE', dst_pattern='V3', t0_sec=100.0, duration=1.5)
     ms.resume(101.0)              # no-op
     assert ms.progress(101.5) == 1.0    # progress as if no pause/resume happened
+
+
+def test_chained_pause_resume():
+    """pause → resume → pause → resume 가 누적 paused_elapsed 로 정확히 합산되는지."""
+    ms = MorphState(src_pattern='TRIANGLE', dst_pattern='V3', t0_sec=100.0, duration=1.5)
+    ms.pause(100.75)        # freeze at 0.5
+    ms.resume(103.0)        # paused_elapsed = 2.25, back to running from 0.5
+    ms.pause(103.25)        # progress = (3.25 - 2.25)/1.5 = 0.666..., freeze here
+    assert ms.progress(110.0) == pytest.approx(2.0 / 3.0, rel=1e-3)
+    ms.resume(115.0)        # paused_elapsed += 11.75 → total 14.0
+    assert ms.progress(115.5) == 1.0   # (15.5 - 14.0)/1.5 = 1.0
+
+
+def test_duration_zero_raises_value_error():
+    """duration<=0 은 잘못된 구성 → ValueError (silent runtime crash 방지)."""
+    with pytest.raises(ValueError, match='duration must be > 0'):
+        MorphState(src_pattern='A', dst_pattern='B', t0_sec=0.0, duration=0.0)
+
+
+def test_duration_negative_raises_value_error():
+    with pytest.raises(ValueError, match='duration must be > 0'):
+        MorphState(src_pattern='A', dst_pattern='B', t0_sec=0.0, duration=-1.0)
