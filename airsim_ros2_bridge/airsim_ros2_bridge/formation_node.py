@@ -1,4 +1,4 @@
-"""AERION Phase 4 — 5대 드론 동적 포메이션 노드 (자체 구현).
+"""AERION Phase 4-Δ — 3대 드론 동적 포메이션 노드 (Virtual Leader + morphing).
 
 ## 설계 철학
 
@@ -15,7 +15,7 @@
 
 | 토픽 | 타입 | 의미 |
 |---|---|---|
-| `/aerion/formation/pattern` | std_msgs/String | "LINE"/"DIAMOND"/"ARROW"/"V"/"ECHELON" |
+| `/aerion/formation/pattern` | std_msgs/String | "TRIANGLE"/"V3"/"COLUMN"/"DIAMOND3" (drone_count=5 시 LINE/DIAMOND/ARROW/V/ECHELON v2 fallback) |
 | `/aerion/formation/leader_pose` | geometry_msgs/PoseStamped | 가상 leader 위치 (ENU, 외부 mission planner) |
 | `/drone{N}/range/front` | sensor_msgs/Range | 회피 hook 입력 (전방만 사용, 좌/우는 별도 검토) |
 | `/drone{N}/mavros/local_position/pose` | geometry_msgs/PoseStamped | 도착 감지 입력 (transition 종료 판정) |
@@ -26,12 +26,14 @@
 |---|---|---|
 | `/drone{N}/mavros/setpoint_position/local` | geometry_msgs/PoseStamped | 각 드론의 목표 위치 (20Hz) |
 | `/aerion/formation/status` | std_msgs/String | "settling" / "stable" / "obstacle_hover" / "no_leader" |
+| `/aerion/formation/morph_progress` | std_msgs/Float32 | 패턴 전환 진행도 (0.0~1.0, 20Hz, idle=1.0) |
 
 ## 동작 상태
 
 - `NO_LEADER`  : leader_pose 미수신 (기본 leader_pose 사용 안 함, setpoint publish 정지)
 - `SETTLING`   : 패턴 전환 직후 → 모든 드론이 목표 위치 ±tolerance 안에 들어올 때까지
 - `STABLE`     : 모든 드론이 목표 위치 안정
+- `MORPHING`     : 패턴 전환 보간 중 (linear interp, default 1.5s; OBSTACLE_HOVER 진입 시 일시정지, 해소 후 resume).
 - `OBSTACLE_HOVER` : 어느 드론이라도 전방 거리 < obstacle_stop_distance → 전체 hover
 
 ## 좌표
@@ -47,6 +49,7 @@ REP-105 ENU (x=East, y=North, z=Up). offset 테이블도 동일.
 
 - 2026-05-18 v1: 80줄 초기 골격 (Aerostack2 대신 자체 구현 결정 직후)
 - 2026-05-18 v2: 모듈화, 회피 hook, 도착 감지, status publisher, 상태 머신, 한국어 주석 강화
+- 2026-05-22 v3: Phase 4-Δ — 3대 baseline + 4패턴 (TRIANGLE/V3/COLUMN/DIAMOND3) + MorphState + MORPHING FSM. 5대는 deprecated fallback.
 """
 
 import math
@@ -165,16 +168,18 @@ def distance(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> fl
 # ---------- 노드 ----------
 
 class FormationNode(Node):
-    """5대 드론 동적 포메이션 컨트롤러.
+    """3대 드론 동적 포메이션 컨트롤러 (Phase 4-Δ; drone_count 1~5 지원, 5는 deprecated v2 fallback).
 
     각 드론에 ros2 publisher/subscriber를 생성하고, 20Hz timer로 setpoint 발행.
     런타임 상태는 _state[drone_idx] 에 캐시. _lock으로 동시성 격리.
 
     Parameters (ros2 launch override 가능):
-      - drone_count          : 1~5 (기본 5)
+      - drone_count          : 1~5 (기본 3, Phase 4-Δ; 5는 deprecated)
       - publish_rate         : Hz (기본 20.0)
       - obstacle_stop_dist   : m (기본 1.0)
       - enable_arrival_check : bool (기본 True, 도착 감지 → status STABLE)
+      - default_altitude     : ENU z (기본 5.0m, leader_pose 미수신 시 기본 고도)
+      - morph_duration_sec   : 패턴 전환 보간 시간 (기본 1.5초)
     """
 
     def __init__(self):
@@ -275,7 +280,15 @@ class FormationNode(Node):
             old = self._pattern
             if name == old:
                 return    # no-op
+            # leader 미수신 상태에서는 morph 시작 안 함. 패턴 target 만 갱신 — leader 수신 시 SETTLING 으로 진입.
+            if self._fsm == 'NO_LEADER':
+                self._pattern = name
+                self.get_logger().info(f'Formation pattern (pre-leader): {old} -> {name}')
+                return
             now_sec = self.get_clock().now().nanoseconds * 1e-9
+            # 이미 morph 중일 때 새 pattern 요청이 들어오면 src=현재 committed pattern (= old).
+            # 의도된 동작: 트레이드오프 — 현재 보간 위치가 아닌 마지막 committed pattern 위치에서 새 morph 시작.
+            # 시각적으로 약간의 setpoint jump 가능 (특히 morph 진행도 >50% 일 때). Phase 4-η 후속 작업 후보.
             self._morph = MorphState(
                 src_pattern=old,
                 dst_pattern=name,
@@ -293,6 +306,9 @@ class FormationNode(Node):
                             msg.pose.position.z, yaw)
             if not self._leader_received:
                 self._leader_received = True
+                # defensive: leader 미수신 상태에서 _morph 가 살아있으면 정리 (B1 guard 이후엔 사실 발생 안 함).
+                if self._morph is not None:
+                    self._morph = None
                 self._fsm = 'SETTLING'
                 self.get_logger().info('Leader pose received → SETTLING')
 
@@ -354,12 +370,14 @@ class FormationNode(Node):
                     self._fsm = 'SETTLING'
             else:
                 offsets = self._formations[self._pattern]
-                # idle 시 morph_progress=1.0 (외부 관찰자가 항상 stream 받을 수 있게)
+                # idle (morph 없음): morph_progress=1.0. OBSTACLE_HOVER 진입 시 _tick 이
+                # early-return 하므로 그 동안엔 stream 끊김 (의도된 동작 — pose update 와 동기).
                 morph_progress_value = 1.0
 
             lx, ly, lz, yaw = self._leader
+            fsm_snapshot = self._fsm    # publish/도착 감지 블록에서 사용할 일관 스냅샷
 
-        # publish (lock 밖에서 publish → 콜백 backpressure 영향 최소화, rclpy publisher 는 thread-safe 이지만 v2 패턴 일관성 위해)
+        # publish (lock 밖에서 publish — 콜백 backpressure 영향 최소화).
         mp = Float32()
         mp.data = float(morph_progress_value)
         self._morph_pub.publish(mp)
@@ -377,8 +395,9 @@ class FormationNode(Node):
             ps.pose.orientation.z = math.sin(yaw / 2.0)
             self._setpoint_pubs[i].publish(ps)
 
-        # 도착 감지 → STABLE 전환 (morph 종료 직후의 SETTLING 도 같은 로직 적용)
-        if self._enable_arrival and self._fsm == 'SETTLING':
+        # 도착 감지 → STABLE 전환 (morph 종료 직후의 SETTLING 도 같은 로직 적용).
+        # FSM 스냅샷 사용 — lock 밖이므로 self._fsm 직접 읽으면 콜백 mid-mutation 위험.
+        if self._enable_arrival and fsm_snapshot == 'SETTLING':
             if self._all_arrived(offsets):
                 with self._lock:
                     self._fsm = 'STABLE'
