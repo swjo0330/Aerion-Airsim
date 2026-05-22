@@ -58,21 +58,32 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import Range
-from std_msgs.msg import String
+from std_msgs.msg import Float32, String
 
 
 # ---------- 상수 ----------
 
-N_DRONES = 5
+N_DRONES = 3  # Phase 4-Δ baseline (AirSim issue #1538 RPC 4-thread limit safe margin).
 
 # ENU 좌표, leader 기준 상대 offset (dx, dy, dz). 충돌 안전거리 ≥1.5m 유지.
-FORMATIONS: Dict[str, list] = {
+# Phase 4-Δ: 3-drone 전용 4패턴.
+FORMATIONS_3: Dict[str, list] = {
+    'TRIANGLE': [( 0.0,  0.0, 0.0), (-1.7, -1.0, 0.0), (-1.7,  1.0, 0.0)],
+    'V3':       [( 0.0,  0.0, 0.0), (-1.5, -1.5, 0.0), (-1.5,  1.5, 0.0)],
+    'COLUMN':   [( 0.0,  0.0, 0.0), (-2.0,  0.0, 0.0), (-4.0,  0.0, 0.0)],
+    'DIAMOND3': [( 0.0,  0.0, 1.0), (-1.5, -1.0, 0.0), (-1.5,  1.0, 0.0)],
+}
+
+# Phase 4 (v2) 5-drone fallback. drone_count=5 일 때만 사용. deprecated.
+FORMATIONS_5: Dict[str, list] = {
     'LINE':    [( 0,  0, 0), ( 0, -2, 0), ( 0, -4, 0), ( 0, -6, 0), ( 0, -8, 0)],
     'DIAMOND': [( 0,  0, 0), ( 2, -2, 0), ( 0, -4, 0), (-2, -2, 0), ( 0, -2, 1.0)],
     'ARROW':   [( 0,  0, 0), (-1.5, -1.5, 0), (-3, -3, 0), (-1.5, 1.5, 0), (-3, 3, 0)],
     'V':       [( 0,  0, 0), (-1.5, -1.5, 0), (-3, -3, 0), (-1.5,  1.5, 0), (-3,  3, 0)],
     'ECHELON': [( 0,  0, 0), (-1.5, -1.5, 0), (-3, -3, 0), (-4.5, -4.5, 0), (-6, -6, 0)],
 }
+
+DEFAULT_MORPH_DURATION_SEC = 1.5
 
 # 도착 감지 허용 오차 (m). 모든 드론의 위치 오차가 이 값보다 작으면 STABLE.
 ARRIVAL_TOLERANCE_M = 0.6
@@ -175,20 +186,40 @@ class FormationNode(Node):
         self.declare_parameter('obstacle_stop_dist', DEFAULT_OBSTACLE_STOP_DISTANCE)
         self.declare_parameter('enable_arrival_check', True)
         self.declare_parameter('default_altitude', 5.0)  # leader_pose 미수신 시 기본 고도 (ENU z)
-        self.declare_parameter('default_pattern', 'LINE')
+        self.declare_parameter('default_pattern', 'TRIANGLE')
+        self.declare_parameter('morph_duration_sec', DEFAULT_MORPH_DURATION_SEC)
 
         self._n = int(self.get_parameter('drone_count').value)
         self._rate = float(self.get_parameter('publish_rate').value)
         self._obstacle_stop_dist = float(self.get_parameter('obstacle_stop_dist').value)
         self._enable_arrival = bool(self.get_parameter('enable_arrival_check').value)
         self._default_alt = float(self.get_parameter('default_altitude').value)
-        self._pattern = str(self.get_parameter('default_pattern').value).upper()
-        if self._pattern not in FORMATIONS:
-            self.get_logger().warn(f'Unknown default_pattern={self._pattern}, fallback to LINE')
-            self._pattern = 'LINE'
+        self._morph_duration = float(self.get_parameter('morph_duration_sec').value)
 
         if not (1 <= self._n <= 5):
             raise ValueError(f'drone_count 1~5만 지원: {self._n}')
+        if self._morph_duration <= 0:
+            raise ValueError(f'morph_duration_sec must be > 0, got {self._morph_duration}')
+
+        # Phase 4-Δ: drone_count 에 따라 패턴 테이블 선택. 5 는 deprecated v2 fallback.
+        if self._n == 5:
+            self._formations = FORMATIONS_5
+            self.get_logger().warn(
+                'drone_count=5 is deprecated in Phase 4-Δ (AirSim RPC 4-thread limit). '
+                'Fallback to v2 5-pattern table. See spec phase4-delta + Phase 4-η.'
+            )
+        else:
+            # 1~4 인 경우 모두 FORMATIONS_3 사용. drone_count < 3 이면 앞 N 개만 사용.
+            self._formations = FORMATIONS_3
+
+        self._pattern = str(self.get_parameter('default_pattern').value).upper()
+        if self._pattern not in self._formations:
+            fallback = 'TRIANGLE' if self._n != 5 else 'LINE'
+            self.get_logger().warn(
+                f'Unknown default_pattern={self._pattern} for drone_count={self._n}, '
+                f'fallback to {fallback}'
+            )
+            self._pattern = fallback
 
         # ----- 런타임 상태 -----
         # leader_pose 가 한 번이라도 publish 되면 _leader_received=True.
@@ -196,7 +227,8 @@ class FormationNode(Node):
         self._leader_received = False
         self._leader = (0.0, 0.0, self._default_alt, 0.0)  # (x, y, z, yaw)
         self._state: Dict[int, DroneState] = {i: DroneState() for i in range(1, self._n + 1)}
-        self._fsm = 'NO_LEADER'  # NO_LEADER | SETTLING | STABLE | OBSTACLE_HOVER
+        self._fsm = 'NO_LEADER'  # NO_LEADER | SETTLING | STABLE | OBSTACLE_HOVER | MORPHING
+        self._morph: Optional[MorphState] = None
         self._lock = threading.RLock()
 
         # ----- Pub/Sub -----
@@ -219,6 +251,7 @@ class FormationNode(Node):
         self.create_subscription(PoseStamped, '/aerion/formation/leader_pose',
                                  self._on_leader, 10)
         self._status_pub = self.create_publisher(String, '/aerion/formation/status', 10)
+        self._morph_pub = self.create_publisher(Float32, '/aerion/formation/morph_progress', 10)
 
         # ----- 메인 timer -----
         self._timer = self.create_timer(1.0 / self._rate, self._tick)
@@ -226,23 +259,31 @@ class FormationNode(Node):
 
         self.get_logger().info(
             f'AERION formation node ready. drones={self._n}, pattern={self._pattern}, '
-            f'rate={self._rate}Hz, obstacle_stop={self._obstacle_stop_dist}m'
+            f'rate={self._rate}Hz, obstacle_stop={self._obstacle_stop_dist}m, '
+            f'morph_duration={self._morph_duration}s, table='
+            f'{"FORMATIONS_5(deprecated)" if self._n == 5 else "FORMATIONS_3"}'
         )
 
     # ----- 구독 콜백 -----
 
     def _on_pattern(self, msg: String):
         name = msg.data.strip().upper()
-        if name not in FORMATIONS:
+        if name not in self._formations:
             self.get_logger().warn(f'Unknown formation pattern: {msg.data!r}')
             return
         with self._lock:
             old = self._pattern
-            self._pattern = name
-            # 패턴이 바뀌면 SETTLING 상태로 진입 (도착 감지 → STABLE 재판정).
-            if self._fsm == 'STABLE':
-                self._fsm = 'SETTLING'
-        self.get_logger().info(f'Formation pattern: {old} -> {name}')
+            if name == old:
+                return    # no-op
+            now_sec = self.get_clock().now().nanoseconds * 1e-9
+            self._morph = MorphState(
+                src_pattern=old,
+                dst_pattern=name,
+                t0_sec=now_sec,
+                duration=self._morph_duration,
+            )
+            self._fsm = 'MORPHING'
+        self.get_logger().info(f'Formation pattern: {old} -> {name} (morphing {self._morph_duration:.1f}s)')
 
     def _on_leader(self, msg: PoseStamped):
         yaw = yaw_from_quaternion(msg.pose.orientation)
@@ -268,29 +309,60 @@ class FormationNode(Node):
     # ----- 메인 tick -----
 
     def _tick(self):
-        """20Hz: leader_pose + pattern 기반으로 각 드론 setpoint 발행."""
+        """20Hz: leader_pose + pattern (또는 morph 진행) 기반으로 각 드론 setpoint 발행."""
         with self._lock:
             if not self._leader_received:
                 # leader 없으면 publish 안 함. 외부에서 leader_pose 발행 시작 대기.
                 return
 
+            now_sec = self.get_clock().now().nanoseconds * 1e-9
+
             # 거리센서 회피 hook: 어느 드론이라도 전방 거리 < 임계 → OBSTACLE_HOVER
             min_range = min(s.range_front for s in self._state.values())
             if min_range < self._obstacle_stop_dist:
-                self._fsm = 'OBSTACLE_HOVER'
-                # OBSTACLE_HOVER: leader_pose는 그대로지만 transient leader = 현재 leader.
-                # 각 드론은 자기 현재 위치를 setpoint로 publish (제자리 유지).
+                if self._fsm != 'OBSTACLE_HOVER':
+                    if self._morph is not None:
+                        self._morph.pause(now_sec)
+                    self._fsm = 'OBSTACLE_HOVER'
                 self._publish_hover_setpoints()
                 return
             elif self._fsm == 'OBSTACLE_HOVER':
-                # 장애물 해소 → SETTLING으로 복귀.
-                self._fsm = 'SETTLING'
+                # 장애물 해소 → 이전 상태 복귀.
+                if self._morph is not None:
+                    self._morph.resume(now_sec)
+                    self._fsm = 'MORPHING'
+                else:
+                    self._fsm = 'SETTLING'
 
-            pattern = self._pattern
+            # Morphing 활성 시 interp, 아니면 정적 offset.
+            if self._morph is not None:
+                p = self._morph.progress(now_sec)
+                src = self._formations[self._morph.src_pattern]
+                dst = self._formations[self._morph.dst_pattern]
+                offsets = [
+                    ((1 - p) * src[i][0] + p * dst[i][0],
+                     (1 - p) * src[i][1] + p * dst[i][1],
+                     (1 - p) * src[i][2] + p * dst[i][2])
+                    for i in range(self._n)
+                ]
+                morph_progress_value = p
+
+                if p >= 1.0:
+                    # 완료: dst 캡처 후 morph 정리, SETTLING 으로 전이.
+                    self._pattern = self._morph.dst_pattern
+                    self._morph = None
+                    self._fsm = 'SETTLING'
+            else:
+                offsets = self._formations[self._pattern]
+                # idle 시 morph_progress=1.0 (외부 관찰자가 항상 stream 받을 수 있게)
+                morph_progress_value = 1.0
+
             lx, ly, lz, yaw = self._leader
-            offsets = FORMATIONS[pattern]
 
-        # publish (lock 밖에서 publish → 콜백 backpressure 영향 최소화)
+        # publish (lock 밖에서 publish → 콜백 backpressure 영향 최소화, rclpy publisher 는 thread-safe 이지만 v2 패턴 일관성 위해)
+        mp = Float32()
+        mp.data = float(morph_progress_value)
+        self._morph_pub.publish(mp)
         stamp = self.get_clock().now().to_msg()
         for i in range(1, self._n + 1):
             dx, dy, dz = offsets[i - 1]
@@ -305,7 +377,7 @@ class FormationNode(Node):
             ps.pose.orientation.z = math.sin(yaw / 2.0)
             self._setpoint_pubs[i].publish(ps)
 
-        # 도착 감지 → STABLE 전환
+        # 도착 감지 → STABLE 전환 (morph 종료 직후의 SETTLING 도 같은 로직 적용)
         if self._enable_arrival and self._fsm == 'SETTLING':
             if self._all_arrived(offsets):
                 with self._lock:
