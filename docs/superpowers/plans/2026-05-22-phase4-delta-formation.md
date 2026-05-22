@@ -132,7 +132,8 @@ class MorphState:
 
     def progress(self, now_sec: float) -> float:
         if self.paused_at_sec is not None:
-            elapsed = self.paused_elapsed
+            # pause 중이면 paused_at 시점의 elapsed 로 동결. paused_elapsed 는 누적된 pause 시간.
+            elapsed = (self.paused_at_sec - self.t0_sec) - self.paused_elapsed
         else:
             elapsed = (now_sec - self.t0_sec) - self.paused_elapsed
         return max(0.0, min(1.0, elapsed / self.duration))
