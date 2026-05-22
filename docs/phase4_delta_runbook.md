@@ -6,6 +6,35 @@
 
 Verifies the Phase 4-Δ implementation — 3-drone baseline + 4 patterns + linear morphing.
 
+## Quick start (통합 스크립트 — 추천)
+
+CARLA+AirSim 또는 AirSim-only 환경에서 3대 PX4 + MAVROS + Phase 4-Δ formation 을 한 번에 띄우는 orchestration 스크립트:
+
+```bash
+cd ~/workspace/projects/aerion-airsim
+# 사전: UE Editor 별 터미널에서 살아있고 Play 직전 상태
+bash scripts/run_phase4_delta.sh
+```
+
+스크립트 처리 순서:
+
+1. 기존 PX4/MAVROS/bridge 프로세스 정리
+2. `settings/px4_3drones_phase4_delta.json` → `~/Documents/AirSim/settings.json` deploy
+3. UE Play 안내 (사용자 manual step — 5초 타임아웃 후 자동 진행)
+4. PX4 SITL × 3 백그라운드 기동 (`launch_px4_instances.sh`)
+5. `aerion_phase5_px4.launch.py drone_count:=3 default_pattern:=TRIANGLE leader_mode:=circle` — MAVROS×3 + bridge×3 + formation + leader + tf
+6. `mavros_arm_all.py --count 3 --takeoff-alt 5.0` — arm + OFFBOARD + takeoff
+7. `aerion_formation_demo --demo morphing-cycle` — TRIANGLE→V3→COLUMN→DIAMOND3 (각 10초)
+8. Ctrl+C → cleanup (trap 에서 PX4/MAVROS/bridge KILL)
+
+Override 환경변수: `DRONE_COUNT`, `DEFAULT_PATTERN`, `LEADER_MODE`, `RUN_CYCLE_DEMO`, `PX4_DIR`, `WORKSPACE`, `ROS_SETUP`, `SETTINGS_SRC`.
+
+AirSim-only baseline 에서 즉시 동작. CARLA+AirSim 동적 통합 (aerion-carlaair Phase 1 빌드) 이후에는 Step 2 의 UE 실행 부분만 CARLA fork UE5.5 + 통합 빌드 프로젝트로 교체하면 동일 시퀀스 사용 가능.
+
+---
+
+아래 §A~§F 섹션들은 스크립트 없이 수동으로 단계별 검증할 때 참조용.
+
 ## Prerequisites
 
 - `airsim_ros2_bridge` package built (`colcon build --packages-select airsim_ros2_bridge`)
