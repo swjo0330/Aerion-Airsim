@@ -14,8 +14,7 @@ set -euo pipefail
 DRONE_COUNT="${DRONE_COUNT:-3}"
 PATTERNS="${PATTERNS:-TRIANGLE,V3,COLUMN,DIAMOND3}"
 HOLD_SEC="${HOLD_SEC:-8.0}"
-VELOCITY="${VELOCITY:-1.5}"
-LOOKAHEAD="${LOOKAHEAD:-2.0}"
+VELOCITY="${VELOCITY:-2.0}"
 CYCLES="${CYCLES:-0}"
 WORKSPACE="${WORKSPACE:-$HOME/workspace/projects/aerion-airsim}"
 SETTINGS_SRC="${SETTINGS_SRC:-$WORKSPACE/settings/sf_3drones_phase4_delta.json}"
@@ -50,12 +49,11 @@ read -r -p "  준비됐으면 Enter (timeout 없음): " _ || true
 
 # Step 3: clean Python runner
 log "[Step 3] phase4_delta_simple.py 실행 (Ctrl+C 종료 시 land+disarm)"
-echo "  drones=$DRONE_COUNT  patterns=$PATTERNS  hold=$HOLD_SEC  vel=$VELOCITY  lookahead=$LOOKAHEAD  cycles=$CYCLES"
+echo "  drones=$DRONE_COUNT  patterns=$PATTERNS  hold=$HOLD_SEC  vel=$VELOCITY  cycles=$CYCLES"
 echo ""
 exec python3 "$WORKSPACE/scripts/phase4_delta_simple.py" \
     --drones "$DRONE_COUNT" \
     --patterns "$PATTERNS" \
     --hold-sec "$HOLD_SEC" \
     --velocity "$VELOCITY" \
-    --lookahead "$LOOKAHEAD" \
     --cycles "$CYCLES"
