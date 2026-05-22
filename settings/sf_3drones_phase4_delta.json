@@ -1,0 +1,148 @@
+{
+  "_comment": "AERION Phase 4-Δ — SimpleFlight 3대 (PX4 stack 우회).",
+  "_comment2": "각 드론: VehicleType=SimpleFlight + AirSim API 직접 제어 (mavros 미사용). bridge control_backend='airsim_direct' 와 호환.",
+  "_comment3": "v1 (3-drone, Phase 4-Δ SF fallback): PX4 헛수고를 피하기 위한 대체 backend. CARLA+AirSim 통합 환경에서도 동일 작동.",
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "ClockType": "SteppableClock",
+  "ViewMode": "SpringArmChase",
+  "OriginGeopoint": {
+    "Latitude": 37.5665,
+    "Longitude": 126.978,
+    "Altitude": 38
+  },
+  "SubWindows": [
+    {
+      "WindowID": 0,
+      "CameraName": "front_center",
+      "ImageType": 0,
+      "VehicleName": "drone1",
+      "Visible": true
+    }
+  ],
+  "Vehicles": {
+    "drone1": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "X": 0.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0,
+      "Sensors": {
+        "Imu": {
+          "SensorType": 2,
+          "Enabled": true
+        },
+        "Magnetometer": {
+          "SensorType": 4,
+          "Enabled": true
+        },
+        "Barometer": {
+          "SensorType": 1,
+          "Enabled": true
+        },
+        "Gps": {
+          "SensorType": 3,
+          "Enabled": true
+        }
+      },
+      "Cameras": {
+        "front_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 320,
+              "Height": 240,
+              "FOV_Degrees": 90
+            }
+          ],
+          "X": 0.25,
+          "Y": 0,
+          "Z": -0.18
+        }
+      }
+    },
+    "drone2": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "X": 5.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0,
+      "Sensors": {
+        "Imu": {
+          "SensorType": 2,
+          "Enabled": true
+        },
+        "Magnetometer": {
+          "SensorType": 4,
+          "Enabled": true
+        },
+        "Barometer": {
+          "SensorType": 1,
+          "Enabled": true
+        },
+        "Gps": {
+          "SensorType": 3,
+          "Enabled": true
+        }
+      },
+      "Cameras": {
+        "front_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 320,
+              "Height": 240,
+              "FOV_Degrees": 90
+            }
+          ],
+          "X": 0.25,
+          "Y": 0,
+          "Z": -0.18
+        }
+      }
+    },
+    "drone3": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "X": 10.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0,
+      "Sensors": {
+        "Imu": {
+          "SensorType": 2,
+          "Enabled": true
+        },
+        "Magnetometer": {
+          "SensorType": 4,
+          "Enabled": true
+        },
+        "Barometer": {
+          "SensorType": 1,
+          "Enabled": true
+        },
+        "Gps": {
+          "SensorType": 3,
+          "Enabled": true
+        }
+      },
+      "Cameras": {
+        "front_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 320,
+              "Height": 240,
+              "FOV_Degrees": 90
+            }
+          ],
+          "X": 0.25,
+          "Y": 0,
+          "Z": -0.18
+        }
+      }
+    }
+  }
+}
