@@ -178,11 +178,17 @@ def main() -> int:
     yaw_mode = airsim.YawMode(is_rate=False, yaw_or_rate=0.0)
 
     def reacquire(v: str) -> None:
-        """매 패턴 명령 전 API control + arm 재확인 (AirSim 의 idle release 방지)."""
+        """매 패턴 명령 전 API control 만 재확인.
+
+        armDisarm(True) 와 cancelLastTask 는 절대 호출 금지:
+          - armDisarm(True) 가 이미 armed 상태에서 호출되면 AirSim SimpleFlight
+            의 motor 가 잠시 reset → 그 사이 free fall 로 추락.
+          - cancelLastTask 가 현재 hover 명령을 끊으면 새 명령 발행 사이의 짧은
+            틈에서 default 동작이 hover 가 아니라 free fall 일 수 있음.
+          - 이전 명령은 새 moveToPositionAsync 호출 시 AirSim 이 자동 override.
+        """
         try:
             c.enableApiControl(True, vehicle_name=v)
-            c.armDisarm(True, vehicle_name=v)
-            c.cancelLastTask(vehicle_name=v)
         except Exception as e:
             print(f'    [reacquire {v}] warn: {e}')
 
