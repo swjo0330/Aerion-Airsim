@@ -1,0 +1,56 @@
+{
+  "_comment": "AERION CARLA showcase - SimpleFlight 3 drones",
+  "_comment2": "CARLA+AirSim 통합 빌드에서 사용. UE Play 시 settings 재로딩 필요.",
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "ViewMode": "SpringArmChase",
+  "OriginGeopoint": {
+    "Latitude": 37.5665,
+    "Longitude": 126.9780,
+    "Altitude": 38
+  },
+  "SubWindows": [
+    {
+      "WindowID": 0,
+      "CameraName": "front_center",
+      "ImageType": 0,
+      "VehicleName": "drone1",
+      "Visible": true
+    }
+  ],
+  "Vehicles": {
+    "drone1": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 0.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    },
+    "drone2": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 8.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    },
+    "drone3": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 16.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    }
+  }
+}

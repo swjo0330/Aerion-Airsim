@@ -7,15 +7,29 @@
 # Usage:
 #   bash scripts/run_phase4_delta_clean.sh
 #
-# Env override: DRONE_COUNT, PATTERNS, HOLD_SEC, VELOCITY, CYCLES, WORKSPACE.
+# Env override: DRONE_COUNT, PATTERNS, HOLD_SEC, VELOCITY, CYCLES, WORKSPACE,
+#               CONTROL_MODE, TOL_M, TELEPORT_RETRIES, FAIL_ON_MISS,
+#               FALLBACK_TELEPORT_ON_MISS.
 
 set -euo pipefail
 
 DRONE_COUNT="${DRONE_COUNT:-3}"
-PATTERNS="${PATTERNS:-TRIANGLE,V3,COLUMN,DIAMOND3}"
+PATTERNS="${PATTERNS:-TRIANGLE,LINE_H,ECHELON_R,DIAMOND3,ECHELON_L}"
 HOLD_SEC="${HOLD_SEC:-8.0}"
-VELOCITY="${VELOCITY:-2.0}"
+VELOCITY="${VELOCITY:-2.6}"
 CYCLES="${CYCLES:-0}"
+CONTROL_MODE="${CONTROL_MODE:-showcase}"
+TOL_M="${TOL_M:-0.35}"
+TOL_XY_M="${TOL_XY_M:-1.10}"
+TOL_Z_M="${TOL_Z_M:-0.75}"
+TELEPORT_RETRIES="${TELEPORT_RETRIES:-3}"
+FAIL_ON_MISS="${FAIL_ON_MISS:-0}"
+FALLBACK_TELEPORT_ON_MISS="${FALLBACK_TELEPORT_ON_MISS:-0}"
+SEGMENT_SEC="${SEGMENT_SEC:-9.0}"
+TICK_HZ="${TICK_HZ:-4.0}"
+COMMAND_STAGGER_MS="${COMMAND_STAGGER_MS:-25}"
+CAPTURE_SEC="${CAPTURE_SEC:-3.5}"
+FORMATION_HOLD_SEC="${FORMATION_HOLD_SEC:-10.0}"
 WORKSPACE="${WORKSPACE:-$HOME/workspace/projects/aerion-airsim}"
 SETTINGS_SRC="${SETTINGS_SRC:-$WORKSPACE/settings/sf_3drones_phase4_delta.json}"
 SETTINGS_DST="${SETTINGS_DST:-$HOME/Documents/AirSim/settings.json}"
@@ -50,10 +64,36 @@ read -r -p "  준비됐으면 Enter (timeout 없음): " _ || true
 # Step 3: clean Python runner
 log "[Step 3] phase4_delta_simple.py 실행 (Ctrl+C 종료 시 land+disarm)"
 echo "  drones=$DRONE_COUNT  patterns=$PATTERNS  hold=$HOLD_SEC  vel=$VELOCITY  cycles=$CYCLES"
+echo "  control_mode=$CONTROL_MODE  tol_m=$TOL_M  tol_xy_m=$TOL_XY_M  tol_z_m=$TOL_Z_M"
+echo "  teleport_retries=$TELEPORT_RETRIES  fail_on_miss=$FAIL_ON_MISS"
+echo "  fallback_teleport_on_miss=$FALLBACK_TELEPORT_ON_MISS"
+echo "  segment_sec=$SEGMENT_SEC  tick_hz=$TICK_HZ  command_stagger_ms=$COMMAND_STAGGER_MS"
+echo "  capture_sec=$CAPTURE_SEC"
+echo "  formation_hold_sec=$FORMATION_HOLD_SEC"
 echo ""
-exec python3 "$WORKSPACE/scripts/phase4_delta_simple.py" \
+CMD=(python3 "$WORKSPACE/scripts/phase4_delta_simple.py" \
     --drones "$DRONE_COUNT" \
     --patterns "$PATTERNS" \
     --hold-sec "$HOLD_SEC" \
     --velocity "$VELOCITY" \
-    --cycles "$CYCLES"
+    --cycles "$CYCLES" \
+    --control-mode "$CONTROL_MODE" \
+    --tol-m "$TOL_M" \
+    --tol-xy-m "$TOL_XY_M" \
+    --tol-z-m "$TOL_Z_M" \
+    --teleport-retries "$TELEPORT_RETRIES" \
+    --segment-sec "$SEGMENT_SEC" \
+    --tick-hz "$TICK_HZ" \
+    --command-stagger-ms "$COMMAND_STAGGER_MS" \
+    --capture-sec "$CAPTURE_SEC" \
+    --formation-hold-sec "$FORMATION_HOLD_SEC")
+
+if [ "$FAIL_ON_MISS" = "1" ]; then
+  CMD+=(--fail-on-miss)
+fi
+
+if [ "$FALLBACK_TELEPORT_ON_MISS" = "1" ]; then
+  CMD+=(--fallback-teleport-on-miss)
+fi
+
+exec "${CMD[@]}"
