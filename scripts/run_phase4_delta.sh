@@ -207,7 +207,15 @@ if [ -f "$ARM_SCRIPT" ]; then
         if arm_attempt; then
             log "  arm 재시도 성공"
         else
-            warn "arm 2차 실패 — preflight 미통과. settings 에 EKF2_MAG_TYPE=1 + COM_ARM_EKF_YAW=0 + COM_PREARM_MODE=0 적용됐는지 확인. 또는 forced-arm magic(param2=21196) 검토."
+            warn "arm 2차 실패 — Colosseum settings.json Parameters 채널이 PX4 에 전달 안 됐을 가능성 큼 (PX4 log 의 heading invalid 가 변화 없음). forced-arm fallback (param2=21196, preflight bypass) 시도."
+            FORCE_ARM_SCRIPT="$WORKSPACE/airsim_ros2_bridge/scripts/mavros_force_arm.py"
+            if [ -f "$FORCE_ARM_SCRIPT" ]; then
+                python3 "$FORCE_ARM_SCRIPT" --drones "$DRONE_COUNT" --altitude 5.0 \
+                    2>&1 | tee "$LOG_DIR/force_arm_$(date +%Y%m%d_%H%M%S).log" || \
+                    warn "forced-arm 도 실패 — mavros service 응답 없음. mavros connection / firmware 검토."
+            else
+                warn "forced-arm script 없음: $FORCE_ARM_SCRIPT — git pull 필요."
+            fi
         fi
     fi
 else
