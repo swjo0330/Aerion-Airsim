@@ -90,10 +90,17 @@ echo "  source: $SETTINGS_SRC"
 echo "  md5:    $(md5sum "$SETTINGS_DST" | awk '{print $1}')"
 
 # ---------- Step 2: UE Play 안내 ----------
-log "[Step 2] UE Editor 가 살아있고 Play 누른 상태인지 확인하세요."
-echo "  - Editor Preferences > Use Less CPU when in Background: 해제 권장"
-echo "  - bash scripts/run_ue_blocksv2.sh 로 Editor 시작 가능"
-read -r -p "  Play 누르고 Enter (또는 5초 timeout 자동 진행): " -t 5 _ || true
+log "[Step 2] UE Editor 에서 Stop → Play 다시 누르세요."
+echo "  중요: settings.json 은 Play 시점에만 읽힘. 이전 시뮬레이션이 Play 중이면"
+echo "        새 SF settings 무시되고 이전 vehicle 유지 (enableApiControl 거부)."
+echo ""
+echo "  체크리스트:"
+echo "    1. UE Editor 에서 Stop (이전 Play 가 진행 중이었으면)"
+echo "    2. Editor Preferences > Use Less CPU when in Background: 해제 (한 번만)"
+echo "    3. Play 다시 누름 → 3대 drone1/2/3 spawn 까지 대기 (몇 초)"
+echo "    4. 아래 Enter"
+echo ""
+read -r -p "  준비됐으면 Enter (timeout 없음): " _ || true
 echo ""
 
 # (Step 3: PX4 SITL 단계 없음 — SimpleFlight 는 UE 내부에서 동작)
