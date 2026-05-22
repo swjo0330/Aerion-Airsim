@@ -97,6 +97,37 @@ class DroneState:
         return self.pose_xyz is not None
 
 
+@dataclass
+class MorphState:
+    """패턴 간 부드러운 전환 상태. 순수 Python (float-second time) 으로 단위 테스트 가능.
+
+    노드 안에서는 `self.get_clock().now().nanoseconds * 1e-9` 로 호출.
+    OBSTACLE_HOVER 진입 시 pause(), 해소 시 resume() 로 progress 동결/재개.
+    """
+    src_pattern: str
+    dst_pattern: str
+    t0_sec: float
+    duration: float = 1.5
+    paused_elapsed: float = 0.0
+    paused_at_sec: Optional[float] = None
+
+    def progress(self, now_sec: float) -> float:
+        if self.paused_at_sec is not None:
+            elapsed = (self.paused_at_sec - self.t0_sec) - self.paused_elapsed
+        else:
+            elapsed = (now_sec - self.t0_sec) - self.paused_elapsed
+        return max(0.0, min(1.0, elapsed / self.duration))
+
+    def pause(self, now_sec: float) -> None:
+        if self.paused_at_sec is None:
+            self.paused_at_sec = now_sec
+
+    def resume(self, now_sec: float) -> None:
+        if self.paused_at_sec is not None:
+            self.paused_elapsed += now_sec - self.paused_at_sec
+            self.paused_at_sec = None
+
+
 # ---------- 유틸 ----------
 
 def yaw_from_quaternion(q) -> float:
