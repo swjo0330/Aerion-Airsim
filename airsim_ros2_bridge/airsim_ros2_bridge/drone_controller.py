@@ -652,14 +652,23 @@ class DroneController:
         """Forward position command to AirSim.
 
         PoseStamped.pose.position.x/y/z -> target NED position.
-        Velocity is fixed at 5 m/s.
+        Velocity 완화 + lookahead 부드러운 추종 + 내부 5Hz rate-limit
+        (formation_node 20Hz publish 와 동일 출렁거림 회피).
         """
+        import time as _t
+        now = _t.monotonic()
+        last = getattr(self, '_last_cmd_pos_t', 0.0)
+        if now - last < 0.2:
+            return
+        self._last_cmd_pos_t = now
         try:
             self._client.moveToPositionAsync(
                 msg.pose.position.x,
                 msg.pose.position.y,
                 msg.pose.position.z,
-                velocity=5.0,
+                velocity=2.0,
+                lookahead=1.0,
+                adaptive_lookahead=1,
                 vehicle_name=self._vehicle_name,
             )
         except Exception as e:
@@ -674,7 +683,20 @@ class DroneController:
         self._send_velocity_enu(msg.linear.x, msg.linear.y, msg.linear.z)
 
     def _mavros_cmd_pos_callback(self, msg: PoseStamped):
-        """Forward MAVROS local position setpoint from ROS ENU to AirSim NED."""
+        """Forward MAVROS local position setpoint from ROS ENU to AirSim NED.
+
+        formation_node 가 20Hz 로 publish 하지만 AirSim moveToPositionAsync 는 P 제어
+        + 목표 도달 모드라서 매 호출이 이전 명령을 cancel 하고 새로 가속한다. 그대로
+        넘기면 출렁거림이 발생하므로 내부적으로 5Hz 로 rate-limit + velocity 완화 +
+        lookahead 1m 으로 부드러운 곡선 추종을 사용한다.
+        """
+        import time as _t
+        now = _t.monotonic()
+        last = getattr(self, '_last_mavros_setpoint_pos_t', 0.0)
+        if now - last < 0.2:    # 5Hz 처리 (formation_node 20Hz → 4건 중 1건만)
+            return
+        self._last_mavros_setpoint_pos_t = now
+
         ned_x, ned_y, ned_z = self._enu_to_ned(
             msg.pose.position.x,
             msg.pose.position.y,
@@ -685,7 +707,9 @@ class DroneController:
                 ned_x,
                 ned_y,
                 ned_z,
-                velocity=5.0,
+                velocity=2.0,
+                lookahead=1.0,
+                adaptive_lookahead=1,
                 vehicle_name=self._vehicle_name,
             )
         except Exception as e:
