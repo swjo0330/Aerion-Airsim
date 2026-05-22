@@ -38,7 +38,7 @@ RUN_CYCLE_DEMO="${RUN_CYCLE_DEMO:-true}"
 PX4_DIR="${PX4_DIR:-$HOME/airsim/PX4-Autopilot}"
 WORKSPACE="${WORKSPACE:-$HOME/workspace/projects/aerion-airsim}"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
-LAUNCH_PX4_SH="${LAUNCH_PX4_SH:-$HOME/airsim/scripts/launch_px4_instances.sh}"
+LAUNCH_PX4_SH="${LAUNCH_PX4_SH:-$WORKSPACE/scripts/launch_px4_instances.sh}"
 SETTINGS_SRC="${SETTINGS_SRC:-$WORKSPACE/settings/px4_3drones_phase4_delta.json}"
 SETTINGS_DST="${SETTINGS_DST:-$HOME/Documents/AirSim/settings.json}"
 LOG_DIR="${LOG_DIR:-/tmp/aerion_phase4_delta}"
@@ -69,7 +69,7 @@ log "Phase 4-Δ 시뮬레이션 시작 (DRONE_COUNT=$DRONE_COUNT, PATTERN=$DEFAU
 
 [ -x "$PX4_DIR/build/px4_sitl_default/bin/px4" ] || \
     die "PX4 SITL 빌드 없음 — $PX4_DIR 에서 'make px4_sitl_default none_iris' 필요"
-[ -x "$LAUNCH_PX4_SH" ] || die "PX4 launcher 없음: $LAUNCH_PX4_SH"
+[ -f "$LAUNCH_PX4_SH" ] || die "PX4 launcher 없음: $LAUNCH_PX4_SH"
 [ -f "$SETTINGS_SRC" ] || die "settings 없음: $SETTINGS_SRC"
 [ -f "$ROS_SETUP" ] || die "ROS2 setup 없음: $ROS_SETUP"
 (( 1 <= DRONE_COUNT && DRONE_COUNT <= 5 )) || die "DRONE_COUNT 1~5 만 지원: $DRONE_COUNT"
