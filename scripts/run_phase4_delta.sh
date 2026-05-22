@@ -83,6 +83,21 @@ pkill -KILL -f 'mavros_node'  2>/dev/null || true
 pkill -KILL -f 'bridge_node'  2>/dev/null || true
 sleep 2
 
+# ---------- Step 0.5: colcon build (install/ 없거나 FORCE_BUILD=true) ----------
+FORCE_BUILD="${FORCE_BUILD:-false}"
+if [ ! -f "$WORKSPACE/install/setup.bash" ] || [ "$FORCE_BUILD" = "true" ]; then
+    log "[Step 0.5] colcon build airsim_ros2_bridge (install/ 없음 또는 FORCE_BUILD=true)..."
+    set +u
+    # shellcheck disable=SC1090
+    source "$ROS_SETUP"
+    set -u
+    (cd "$WORKSPACE" && colcon build --packages-select airsim_ros2_bridge --symlink-install) || \
+        die "colcon build 실패 — 출력 확인 후 재시도"
+    log "  colcon build 완료. install/setup.bash 생성됨."
+else
+    log "[Step 0.5] install/setup.bash 이미 존재 (FORCE_BUILD=true 로 재빌드 강제 가능)."
+fi
+
 # ---------- Step 1: settings.json deploy ----------
 log "[Step 1] settings.json deploy"
 mkdir -p "$(dirname "$SETTINGS_DST")"
@@ -159,7 +174,7 @@ done
 log "[Step 5] arm + OFFBOARD + takeoff"
 ARM_SCRIPT="$WORKSPACE/airsim_ros2_bridge/scripts/mavros_arm_all.py"
 if [ -f "$ARM_SCRIPT" ]; then
-    python3 "$ARM_SCRIPT" --count "$DRONE_COUNT" --takeoff-alt 5.0 || \
+    python3 "$ARM_SCRIPT" --drones "$DRONE_COUNT" --altitude 5.0 || \
         warn "mavros_arm_all 일부 실패 — log 확인"
 else
     warn "mavros_arm_all.py 미존재. 수동 arm 명령:"
