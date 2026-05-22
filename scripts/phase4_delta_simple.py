@@ -164,11 +164,22 @@ def main() -> int:
             targets.append((v, tx, ty, tz))
             print(f'    {v} target NED ({tx:+.2f}, {ty:+.2f}, {tz:+.2f})')
 
-        # 명령 send: 공식 패턴 그대로 (yaw_mode 명시 안 함, cancelLastTask 호출 안 함,
-        # armDisarm/enableApiControl 반복 호출 안 함). 새 moveToPositionAsync 가
-        # 이전 명령을 자동 override.
+        # 첫 명령 후 drone2/3 의 API control 이 release 되어 후속 명령이 무시되는 패턴
+        # 발견됨 (drone1 만 계속 동작, drone2/3 는 Pattern 1 위치에서 정체).
+        # → 매 명령 직전 enableApiControl(True) 재assert. 단독 호출은 안전
+        # (armDisarm/cancelLastTask 와 달리 hover 명령 끊지 않음).
         send_fs = []
         for v, tx, ty, tz in targets:
+            try:
+                api_before = c.isApiControlEnabled(vehicle_name=v)
+            except Exception:
+                api_before = None
+            if api_before is False:
+                print(f'    [api-reassert] {v} api_control was False → enableApiControl(True)')
+                c.enableApiControl(True, vehicle_name=v)
+            elif api_before is None:
+                # API 조회 실패 시 안전을 위해 enable 호출
+                c.enableApiControl(True, vehicle_name=v)
             f = c.moveToPositionAsync(tx, ty, tz, args.velocity, vehicle_name=v)
             send_fs.append((v, f))
         print(f'    [send] {len(send_fs)} 드론 명령 발행. .join() 대기...')
