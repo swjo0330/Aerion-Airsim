@@ -30,7 +30,16 @@ import time
 import airsim
 
 
-# leader 기준 상대 offset (AirSim NED). AirSim 의 world 가 NED 이므로 z 음수 = 위.
+# settings.json (sf_3drones_phase4_delta.json) 의 vehicle spawn 위치 (NED, world frame).
+# AirSim multi-vehicle 의 moveToPositionAsync / getMultirotorState 가 **vehicle local
+# frame** 을 사용하므로 world ↔ local 변환은 이 spawn 좌표를 빼고/더해서 수행한다.
+SPAWN_NED = {
+    'drone1': (0.0,  0.0, 0.0),
+    'drone2': (5.0,  0.0, 0.0),
+    'drone3': (10.0, 0.0, 0.0),
+}
+
+# leader 기준 상대 offset (NED, world frame). AirSim 의 world 가 NED → z 음수 = 위.
 FORMATIONS_NED = {
     'TRIANGLE': [(0.0,  0.0, 0.0), (-1.7, -1.0, 0.0), (-1.7,  1.0, 0.0)],
     'V3':       [(0.0,  0.0, 0.0), (-1.5, -1.5, 0.0), (-1.5,  1.5, 0.0)],
@@ -44,6 +53,19 @@ ALTITUDE_M = 5.0   # 이륙 고도 (ENU). AirSim NED z = -ALTITUDE_M
 
 def pos_str(p) -> str:
     return f'({p.x_val:+.2f}, {p.y_val:+.2f}, {p.z_val:+.2f})'
+
+
+def world_pos(state, v_name: str) -> tuple[float, float, float]:
+    """vehicle local frame → world NED 변환 (spawn 좌표 더하기)."""
+    p = state.kinematics_estimated.position
+    sx, sy, sz = SPAWN_NED.get(v_name, (0.0, 0.0, 0.0))
+    return p.x_val + sx, p.y_val + sy, p.z_val + sz
+
+
+def world_to_local(world_xyz: tuple[float, float, float], v_name: str) -> tuple[float, float, float]:
+    """world NED target → vehicle local NED (spawn 좌표 빼기)."""
+    sx, sy, sz = SPAWN_NED.get(v_name, (0.0, 0.0, 0.0))
+    return world_xyz[0] - sx, world_xyz[1] - sy, world_xyz[2] - sz
 
 
 def main() -> int:
@@ -121,23 +143,24 @@ def main() -> int:
     for v, f in takeoff_fs:
         f.join()
         state = c.getMultirotorState(vehicle_name=v)
-        print(f'  {v} takeoff done. pos NED = {pos_str(state.kinematics_estimated.position)}')
+        wx, wy, wz = world_pos(state, v)
+        print(f'  {v} takeoff done. world NED = ({wx:+.2f}, {wy:+.2f}, {wz:+.2f})  '
+              f'[local {pos_str(state.kinematics_estimated.position)}]')
 
     # ---- Step 2: 자기 spawn 위 ALTITUDE_M 으로 안정 hover ----
-    print(f'\n[Step 2] 자기 spawn 위 {ALTITUDE_M}m 로 hover (속도 {args.velocity}m/s)')
+    # AirSim moveToPositionAsync 좌표가 vehicle local frame 이므로 (0, 0, -ALTITUDE)
+    # 가 곧 자기 spawn 위 ALTITUDE_M (world frame).
+    print(f'\n[Step 2] 자기 spawn 위 {ALTITUDE_M}m 로 hover (속도 {args.velocity}m/s, local frame)')
     hover_fs = []
-    for i, v in enumerate(drone_names):
-        # settings.json 의 spawn X=0/5/10, Y=0 가정. 다른 spawn 이면 --leader-x 와 패턴 조정.
-        spawn_x_ned = i * 5.0
-        spawn_y_ned = 0.0
-        target_z_ned = -ALTITUDE_M
-        f = c.moveToPositionAsync(spawn_x_ned, spawn_y_ned, target_z_ned,
-                                   args.velocity, vehicle_name=v)
+    for v in drone_names:
+        f = c.moveToPositionAsync(0.0, 0.0, -ALTITUDE_M, args.velocity, vehicle_name=v)
         hover_fs.append((v, f))
     for v, f in hover_fs:
         f.join()
         state = c.getMultirotorState(vehicle_name=v)
-        print(f'  {v} hover. pos NED = {pos_str(state.kinematics_estimated.position)}')
+        wx, wy, wz = world_pos(state, v)
+        print(f'  {v} hover. world NED = ({wx:+.2f}, {wy:+.2f}, {wz:+.2f})  '
+              f'[local {pos_str(state.kinematics_estimated.position)}]')
     time.sleep(3.0)
     print('  안정 hover 3초 완료')
 
@@ -158,36 +181,31 @@ def main() -> int:
             if i >= len(offsets):
                 continue
             ox, oy, oz = offsets[i]
-            tx = leader_x + ox
-            ty = leader_y + oy
-            tz = leader_z + oz
-            targets.append((v, tx, ty, tz))
-            print(f'    {v} target NED ({tx:+.2f}, {ty:+.2f}, {tz:+.2f})')
+            # world frame target (leader 기준)
+            wtx = leader_x + ox
+            wty = leader_y + oy
+            wtz = leader_z + oz
+            # AirSim multi-vehicle moveToPositionAsync 는 vehicle local frame 이므로
+            # 해당 vehicle 의 spawn 좌표를 빼서 local target 변환.
+            ltx, lty, ltz = world_to_local((wtx, wty, wtz), v)
+            targets.append((v, wtx, wty, wtz, ltx, lty, ltz))
+            print(f'    {v} world ({wtx:+.2f}, {wty:+.2f}, {wtz:+.2f}) '
+                  f'→ local ({ltx:+.2f}, {lty:+.2f}, {ltz:+.2f})')
 
-        # 첫 명령 후 drone2/3 의 API control 이 release 되어 후속 명령이 무시되는 패턴
-        # 발견됨 (drone1 만 계속 동작, drone2/3 는 Pattern 1 위치에서 정체).
-        # → 매 명령 직전 enableApiControl(True) 재assert. 단독 호출은 안전
-        # (armDisarm/cancelLastTask 와 달리 hover 명령 끊지 않음).
+        # 매 명령 직전 enableApiControl(True) 재assert (드론별 API release 패턴 대비).
         send_fs = []
-        for v, tx, ty, tz in targets:
-            try:
-                api_before = c.isApiControlEnabled(vehicle_name=v)
-            except Exception:
-                api_before = None
-            if api_before is False:
-                print(f'    [api-reassert] {v} api_control was False → enableApiControl(True)')
-                c.enableApiControl(True, vehicle_name=v)
-            elif api_before is None:
-                # API 조회 실패 시 안전을 위해 enable 호출
-                c.enableApiControl(True, vehicle_name=v)
-            f = c.moveToPositionAsync(tx, ty, tz, args.velocity, vehicle_name=v)
+        for v, wtx, wty, wtz, ltx, lty, ltz in targets:
+            c.enableApiControl(True, vehicle_name=v)
+            f = c.moveToPositionAsync(ltx, lty, ltz, args.velocity, vehicle_name=v)
             send_fs.append((v, f))
         print(f'    [send] {len(send_fs)} 드론 명령 발행. .join() 대기...')
 
         for v, f in send_fs:
             f.join()
             state = c.getMultirotorState(vehicle_name=v)
-            print(f'    [arrived] {v} pos NED = {pos_str(state.kinematics_estimated.position)}')
+            wx, wy, wz = world_pos(state, v)
+            print(f'    [arrived] {v} world = ({wx:+.2f}, {wy:+.2f}, {wz:+.2f})  '
+                  f'[local {pos_str(state.kinematics_estimated.position)}]')
 
         print(f'    [hold] {args.hold_sec}s hover')
         time.sleep(args.hold_sec)
