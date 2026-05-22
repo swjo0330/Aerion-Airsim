@@ -188,7 +188,7 @@ else:
 |---|---|
 | 1 | `formation_node.py`: `FORMATIONS_3` 도입, `N_DRONES=3`, `MorphState`, FSM `MORPHING`, morph publisher. drone_count default 3. |
 | 2 | `airsim_ros2_bridge/launch/aerion_phase4_formation.launch.py`: 신규 인자 `default_pattern`, `morph_duration_sec`, `drone_count` default 정렬. |
-| 3 | `airsim_ros2_bridge/scripts/aerion_formation.py` (CLI): 4패턴 순환 데모 시퀀스 추가 (`--demo morphing-cycle`). 기존 5패턴 시퀀스는 deprecated. |
+| 3 | `airsim_ros2_bridge/airsim_ros2_bridge/formation_demo.py` (신규) + `setup.py` entry point `aerion_formation_demo`: 4패턴 순환 데모 (`--demo morphing-cycle`). 기존 `aerion_formation` entry point 는 무영향. |
 | 4 | docs/spec 본 문서 + verification runbook (`docs/phase4_delta_runbook.md`) |
 
 총 4 commits, 예상 ~2일.
@@ -219,11 +219,11 @@ ros2 run airsim_ros2_bridge leader_publisher \
              -p init_x:=0.0 -p init_y:=0.0 -p init_z:=5.0
 
 # Step 2: formation_node + 순환 데모
-ros2 run airsim_ros2_bridge formation_node \
+ros2 run airsim_ros2_bridge aerion_formation \
   --ros-args -p drone_count:=3 -p default_pattern:='TRIANGLE'
 
-# Step 3: CLI 로 4패턴 순환
-ros2 run airsim_ros2_bridge aerion_formation --demo morphing-cycle \
+# Step 3: CLI 로 4패턴 순환 (T4 신규 entry point)
+ros2 run airsim_ros2_bridge aerion_formation_demo --demo morphing-cycle \
   --patterns 'TRIANGLE,V3,COLUMN,DIAMOND3' --hold-sec 10
 ```
 

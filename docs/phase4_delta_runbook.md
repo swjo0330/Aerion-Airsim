@@ -133,7 +133,7 @@ python3 -m pytest test/test_formation_morph.py -v
 
 **PASS 조건:**
 
-- [ ] 12 tests pass (progress boundary 5 + pause/resume 5 + duration guard 2)
+- [ ] 12 tests pass (progress boundary 5 + pause/resume single 4 + chained pause/resume 1 + duration guards 2)
 - [ ] T1 commit `0c1cfb7` 의 pyproject.toml `[tool.pytest.ini_options]` 가 ROS2 launch plugin 들을 비활성화하여 plain `python3 -m pytest` 가 동작.
 
 ## 알려진 한계

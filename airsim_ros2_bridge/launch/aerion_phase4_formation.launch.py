@@ -1,7 +1,7 @@
 """AERION Phase 4-Δ — N대 드론 (기본 3) + 포메이션 노드 통합 launch.
 
 흐름:
-  1. (사전 외부) UE Play + sf_5drones_phase3.json deploy + airsim_arm_all.py 실행 (모든 드론 takeoff 완료 상태)
+  1. (사전 외부) UE Play + N대 settings.json deploy + arm_all 스크립트 실행 (모든 드론 takeoff 완료 상태)
   2. (본 launch) bridge_node × N + formation_node 동시 기동
   3. (외부) /aerion/formation/{pattern, leader_pose} 토픽으로 명령
 
@@ -9,8 +9,8 @@ Usage:
     ros2 launch airsim_ros2_bridge aerion_phase4_formation.launch.py drone_count:=3 default_pattern:=TRIANGLE
 
 사전:
-    - 5대 settings.json deploy됨 (vehicle key drone1..drone5)
-    - UE Play + airsim_arm_all.py로 모든 드론 takeoff 완료
+    - settings.json deploy됨. vehicle key drone1..droneN (N = drone_count 인자, 기본 3, 1~5 지원)
+    - UE Play + airsim_arm_all.py (또는 mavros_arm_all.py for PX4) 로 모든 드론 takeoff 완료
     - cyclonedds.xml + RMW env 설정됨
 
 종료 후:

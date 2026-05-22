@@ -19,7 +19,7 @@
 | `airsim_ros2_bridge/airsim_ros2_bridge/formation_node.py` | Modify | `MorphState` dataclass (Task 1), `FORMATIONS_3` + `N_DRONES=3` + FSM `MORPHING` + morph publisher (Task 2) |
 | `airsim_ros2_bridge/test/test_formation_morph.py` | Create | Pure pytest unit tests for `MorphState` semantics (progress, pause, resume) |
 | `airsim_ros2_bridge/launch/aerion_phase4_formation.launch.py` | Modify | New launch args (`default_pattern`, `morph_duration_sec`, `drone_count` default 3) |
-| `airsim_ros2_bridge/scripts/aerion_formation.py` | Modify | New `--demo morphing-cycle` mode that publishes pattern transitions on a fixed schedule |
+| `airsim_ros2_bridge/airsim_ros2_bridge/formation_demo.py` | Create | New `--demo morphing-cycle` CLI publishing pattern transitions (T4 implemented as separate entry point `aerion_formation_demo` for cleaner separation from `aerion_formation` = formation_node:main; cleaner than overloading the existing wrapper). |
 | `docs/phase4_delta_runbook.md` | Create | Verification runbook: 3-terminal sequence + rosbag analysis cheat-sheet |
 
 5 commits total, ~1 per task. Each task is self-contained — produces working/testable code.

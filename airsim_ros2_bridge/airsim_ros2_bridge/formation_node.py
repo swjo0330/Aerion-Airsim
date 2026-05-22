@@ -25,16 +25,16 @@
 | 토픽 | 타입 | 의미 |
 |---|---|---|
 | `/drone{N}/mavros/setpoint_position/local` | geometry_msgs/PoseStamped | 각 드론의 목표 위치 (20Hz) |
-| `/aerion/formation/status` | std_msgs/String | "settling" / "stable" / "obstacle_hover" / "no_leader" |
+| `/aerion/formation/status` | std_msgs/String | "SETTLING" / "STABLE" / "OBSTACLE_HOVER" / "NO_LEADER" / "MORPHING" |
 | `/aerion/formation/morph_progress` | std_msgs/Float32 | 패턴 전환 진행도 (0.0~1.0, 20Hz, idle=1.0) |
 
-## 동작 상태
+## 동작 상태 (status 토픽 값은 모두 UPPERCASE)
 
-- `NO_LEADER`  : leader_pose 미수신 (기본 leader_pose 사용 안 함, setpoint publish 정지)
-- `SETTLING`   : 패턴 전환 직후 → 모든 드론이 목표 위치 ±tolerance 안에 들어올 때까지
-- `STABLE`     : 모든 드론이 목표 위치 안정
-- `MORPHING`     : 패턴 전환 보간 중 (linear interp, default 1.5s; OBSTACLE_HOVER 진입 시 일시정지, 해소 후 resume).
+- `NO_LEADER`      : leader_pose 미수신 (기본 leader_pose 사용 안 함, setpoint publish 정지)
+- `SETTLING`       : 패턴 전환 직후 → 모든 드론이 목표 위치 ±tolerance 안에 들어올 때까지
+- `STABLE`         : 모든 드론이 목표 위치 안정
 - `OBSTACLE_HOVER` : 어느 드론이라도 전방 거리 < obstacle_stop_distance → 전체 hover
+- `MORPHING`       : 패턴 전환 보간 중 (linear interp, default 1.5s; OBSTACLE_HOVER 진입 시 일시정지, 해소 후 resume).
 
 ## 좌표
 
