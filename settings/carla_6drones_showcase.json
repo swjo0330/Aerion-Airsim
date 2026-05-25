@@ -1,0 +1,105 @@
+{
+  "_comment": "AERION CARLA showcase - SimpleFlight 6 drones",
+  "_comment2": "6-drone formation demo. UE Play 시 settings 재로딩 필요.",
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "ViewMode": "Manual",
+  "OriginGeopoint": {
+    "Latitude": 37.5665,
+    "Longitude": 126.978,
+    "Altitude": 38
+  },
+  "CameraDefaults": {
+    "CaptureSettings": [
+      {
+        "ImageType": 0,
+        "Width": 640,
+        "Height": 360,
+        "FOV_Degrees": 90,
+        "AutoExposureSpeed": 100,
+        "AutoExposureBias": 0,
+        "AutoExposureMaxBrightness": 0.64,
+        "AutoExposureMinBrightness": 0.03,
+        "MotionBlurAmount": 0,
+        "TargetGamma": 1
+      }
+    ]
+  },
+  "SubWindows": [
+    {
+      "WindowID": 0,
+      "CameraName": "0",
+      "ImageType": 0,
+      "VehicleName": "drone1",
+      "Visible": true
+    }
+  ],
+  "Vehicles": {
+    "drone1": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 0.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    },
+    "drone2": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 10.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    },
+    "drone3": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 20.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    },
+    "drone4": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 30.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    },
+    "drone5": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 40.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    },
+    "drone6": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "EnableCollisionPassthrogh": false,
+      "EnableCollisions": true,
+      "AllowAPIAlways": true,
+      "X": 50.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0
+    }
+  }
+}

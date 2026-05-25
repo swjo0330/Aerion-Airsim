@@ -9,35 +9,61 @@ set -euo pipefail
 
 WORKSPACE="${WORKSPACE:-$HOME/workspace/projects/aerion-airsim}"
 SETTINGS_DST="${SETTINGS_DST:-$HOME/Documents/AirSim/settings.json}"
+ENV_FILE="${ENV_FILE:-$WORKSPACE/configs/carla_6drones_showcase.env}"
+
+if [ -f "$ENV_FILE" ]; then
+  # 고정 쇼케이스 파라미터는 env 파일에서 관리한다. 외부에서 넘긴 값은 유지.
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+
 AIRSIM_VIEW_MODE="${AIRSIM_VIEW_MODE:-Manual}"
 
 # 안정/시연 기본값
 DRONE_COUNT="${DRONE_COUNT:-3}"
-PATTERNS="${PATTERNS:-TRIANGLE,LINE_H,ECHELON_R,DIAMOND3,ECHELON_L}"
+PATTERNS="${PATTERNS:-TRIANGLE,LINE_H,ECHELON_R,CIRCLE,DIAMOND3,ECHELON_L}"
 CONTROL_MODE="${CONTROL_MODE:-showcase}"
-VELOCITY="${VELOCITY:-3.0}"
-SEGMENT_SEC="${SEGMENT_SEC:-8.0}"
-TICK_HZ="${TICK_HZ:-4.5}"
-COMMAND_STAGGER_MS="${COMMAND_STAGGER_MS:-35}"
-CAPTURE_SEC="${CAPTURE_SEC:-4.0}"
+VELOCITY="${VELOCITY:-4.8}"
+SEGMENT_SEC="${SEGMENT_SEC:-5.6}"
+TICK_HZ="${TICK_HZ:-7.0}"
+COMMAND_STAGGER_MS="${COMMAND_STAGGER_MS:-12}"
+CAPTURE_SEC="${CAPTURE_SEC:-1.6}"
 PRE_SETTLE="${PRE_SETTLE:-1}"
 PRE_SETTLE_RETRIES="${PRE_SETTLE_RETRIES:-3}"
-FORMATION_HOLD_SEC="${FORMATION_HOLD_SEC:-10.0}"
+FORMATION_HOLD_SEC="${FORMATION_HOLD_SEC:-3.0}"
+CIRCLE_HOLD_SEC="${CIRCLE_HOLD_SEC:-3.0}"
 TOL_M="${TOL_M:-0.60}"
 TOL_XY_M="${TOL_XY_M:-1.40}"
 TOL_Z_M="${TOL_Z_M:-0.90}"
-MIN_SEPARATION_M="${MIN_SEPARATION_M:-4.0}"
-TRANSITION_Z_LIFT="${TRANSITION_Z_LIFT:-0.9}"
-COLLISION_HARD_MIN_M="${COLLISION_HARD_MIN_M:-2.6}"
+MIN_SEPARATION_M="${MIN_SEPARATION_M:-6.2}"
+TRANSITION_Z_LIFT="${TRANSITION_Z_LIFT:-0.8}"
+Z_LIFT_GAIN="${Z_LIFT_GAIN:-0.28}"
+Z_ALIGN_SEC="${Z_ALIGN_SEC:-0.8}"
+Z_COMMAND_DEADBAND_M="${Z_COMMAND_DEADBAND_M:-0.26}"
+Z_COMMAND_MAX_STEP_M="${Z_COMMAND_MAX_STEP_M:-0.22}"
+Z_COMMAND_HOLD_BAND_M="${Z_COMMAND_HOLD_BAND_M:-0.12}"
+Z_COMMAND_COOLDOWN_SEC="${Z_COMMAND_COOLDOWN_SEC:-0.55}"
+Z_COLLISION_XY_THRESH_M="${Z_COLLISION_XY_THRESH_M:-4.8}"
+Z_COLLISION_MIN_DZ_M="${Z_COLLISION_MIN_DZ_M:-1.35}"
+Z_COLLISION_DZ_GAIN_PER_XY_M="${Z_COLLISION_DZ_GAIN_PER_XY_M:-0.45}"
+COLLISION_HARD_MIN_M="${COLLISION_HARD_MIN_M:-3.6}"
 COLLISION_MITIGATION_ROUNDS="${COLLISION_MITIGATION_ROUNDS:-3}"
 CA_CROSSING_PENALTY="${CA_CROSSING_PENALTY:-20.0}"
 CA_CONTINUITY_PENALTY="${CA_CONTINUITY_PENALTY:-6.0}"
 ROLE_ASSIGNMENT="${ROLE_ASSIGNMENT:-fixed}"
-CA_NEAR_DIST_M="${CA_NEAR_DIST_M:-6.0}"
-CA_SLOWDOWN_FACTOR="${CA_SLOWDOWN_FACTOR:-0.72}"
+CA_NEAR_DIST_M="${CA_NEAR_DIST_M:-8.0}"
+CA_SLOWDOWN_FACTOR="${CA_SLOWDOWN_FACTOR:-0.70}"
 REANCHOR_GAIN="${REANCHOR_GAIN:-0.85}"
 SAFETY_FLOOR_Z="${SAFETY_FLOOR_Z:--0.20}"
 SAFETY_RECOVERY_Z="${SAFETY_RECOVERY_Z:--3.50}"
+POST_ACTION_ENABLED="${POST_ACTION_ENABLED:-1}"
+POST_ACTION_STYLE="${POST_ACTION_STYLE:-mixed}"
+POST_ACTION_SEGMENT_SEC="${POST_ACTION_SEGMENT_SEC:-4.8}"
+POST_LINE_TRANSLATE_M="${POST_LINE_TRANSLATE_M:-18.0}"
+POST_ROTATE_DEG_LIST="${POST_ROTATE_DEG_LIST:-90}"
+POST_ACTION_VELOCITY_SCALE="${POST_ACTION_VELOCITY_SCALE:-1.22}"
+POST_ACTION_PAUSE_SEC="${POST_ACTION_PAUSE_SEC:-1.2}"
+TRANSITION_WHILE_MOVING="${TRANSITION_WHILE_MOVING:-0}"
 THIRD_PERSON_FOLLOW="${THIRD_PERSON_FOLLOW:-1}"
 THIRD_PERSON_MODE="${THIRD_PERSON_MODE:-external}"
 THIRD_PERSON_CAMERA_NAME="${THIRD_PERSON_CAMERA_NAME:-0}"
@@ -51,6 +77,10 @@ THIRD_PERSON_LOOKAHEAD_M="${THIRD_PERSON_LOOKAHEAD_M:-2.0}"
 THIRD_PERSON_UPDATE_HZ="${THIRD_PERSON_UPDATE_HZ:-8.0}"
 THIRD_PERSON_VIEW_AZIMUTH_DEG="${THIRD_PERSON_VIEW_AZIMUTH_DEG:-135.0}"
 THIRD_PERSON_VIEW_ELEVATION_BIAS_M="${THIRD_PERSON_VIEW_ELEVATION_BIAS_M:-0.0}"
+CAM_CENTER_SMOOTH_ALPHA="${CAM_CENTER_SMOOTH_ALPHA:-0.22}"
+CAM_DIR_SMOOTH_ALPHA="${CAM_DIR_SMOOTH_ALPHA:-0.35}"
+CAM_YAW_RATE_LIMIT_DEG_S="${CAM_YAW_RATE_LIMIT_DEG_S:-40.0}"
+CAM_MOTION_DEADBAND_MPS="${CAM_MOTION_DEADBAND_MPS:-0.35}"
 OBSERVER_X="${OBSERVER_X:-0.0}"
 OBSERVER_Y="${OBSERVER_Y:-0.0}"
 OBSERVER_Z="${OBSERVER_Z:--20.0}"
@@ -74,7 +104,9 @@ DRONE3_Y="${DRONE3_Y:-}"
 DRONE3_Z="${DRONE3_Z:-}"
 
 if [ -z "${SETTINGS_SRC:-}" ]; then
-  if [ "$DRONE_COUNT" = "5" ]; then
+  if [ "$DRONE_COUNT" = "6" ]; then
+    SETTINGS_SRC="$WORKSPACE/settings/carla_6drones_showcase.json"
+  elif [ "$DRONE_COUNT" = "5" ]; then
     SETTINGS_SRC="$WORKSPACE/settings/carla_5drones_showcase.json"
   else
     SETTINGS_SRC="$WORKSPACE/settings/carla_3drones_showcase.json"
@@ -144,6 +176,7 @@ with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 PY
 echo "  md5: $(md5sum "$SETTINGS_DST" | awk '{print $1}')"
+echo "  env file: $ENV_FILE"
 echo "  view mode: $AIRSIM_VIEW_MODE"
 echo "  subwindow: camera=$SUBWINDOW_CAMERA_NAME vehicle=$SUBWINDOW_VEHICLE"
 echo "  spawn offset xyz=($SPAWN_OFFSET_X, $SPAWN_OFFSET_Y, $SPAWN_OFFSET_Z)"
@@ -155,7 +188,7 @@ fi
 
 log "[Step 2] CARLA 통합 UE 프로젝트에서 Stop -> Play"
 echo "  - AirSim settings는 Play 시점에만 재로딩됩니다."
-echo "  - CARLA 맵 로딩 후 drone1/2/3 spawn 확인"
+echo "  - CARLA 맵 로딩 후 drone1..drone${DRONE_COUNT} spawn 확인"
 read -r -p "  준비되면 Enter: " _ || true
 
 if [ "$AUTO_CAMERA_PROBE" = "1" ]; then
@@ -237,17 +270,25 @@ fi
 
 log "[Step 3] Showcase 실행"
 echo "  ip=$AIRSIM_IP:$AIRSIM_PORT  patterns=$PATTERNS  vel=$VELOCITY"
-echo "  segment=$SEGMENT_SEC  hold=$FORMATION_HOLD_SEC  tick=$TICK_HZ"
+echo "  segment=$SEGMENT_SEC  hold=$FORMATION_HOLD_SEC (circle=$CIRCLE_HOLD_SEC)  tick=$TICK_HZ"
 echo "  pre_settle=$PRE_SETTLE retries=$PRE_SETTLE_RETRIES"
-echo "  min_separation_m=$MIN_SEPARATION_M  transition_z_lift=$TRANSITION_Z_LIFT"
+echo "  min_separation_m=$MIN_SEPARATION_M  transition_z_lift=$TRANSITION_Z_LIFT z_lift_gain=$Z_LIFT_GAIN z_align_sec=$Z_ALIGN_SEC"
+echo "  z_command_deadband_m=$Z_COMMAND_DEADBAND_M z_command_max_step_m=$Z_COMMAND_MAX_STEP_M"
+echo "  z_command_hold_band_m=$Z_COMMAND_HOLD_BAND_M z_command_cooldown_sec=$Z_COMMAND_COOLDOWN_SEC"
+echo "  z_collision_xy_thresh_m=$Z_COLLISION_XY_THRESH_M z_collision_min_dz_m=$Z_COLLISION_MIN_DZ_M"
+echo "  z_collision_dz_gain_per_xy_m=$Z_COLLISION_DZ_GAIN_PER_XY_M"
 echo "  collision_hard_min_m=$COLLISION_HARD_MIN_M collision_mitigation_rounds=$COLLISION_MITIGATION_ROUNDS"
 echo "  ca_crossing_penalty=$CA_CROSSING_PENALTY ca_continuity_penalty=$CA_CONTINUITY_PENALTY"
 echo "  role_assignment=$ROLE_ASSIGNMENT"
 echo "  ca_near_dist_m=$CA_NEAR_DIST_M ca_slowdown_factor=$CA_SLOWDOWN_FACTOR"
 echo "  reanchor_gain=$REANCHOR_GAIN"
 echo "  safety_floor_z=$SAFETY_FLOOR_Z  safety_recovery_z=$SAFETY_RECOVERY_Z"
+echo "  post_action_enabled=$POST_ACTION_ENABLED post_action_style=$POST_ACTION_STYLE post_action_segment_sec=$POST_ACTION_SEGMENT_SEC"
+echo "  post_line_translate_m=$POST_LINE_TRANSLATE_M post_rotate_deg_list=$POST_ROTATE_DEG_LIST post_action_velocity_scale=$POST_ACTION_VELOCITY_SCALE post_action_pause_sec=$POST_ACTION_PAUSE_SEC"
+echo "  transition_while_moving=$TRANSITION_WHILE_MOVING"
 echo "  third_person_follow=$THIRD_PERSON_FOLLOW mode=$THIRD_PERSON_MODE camera=$THIRD_PERSON_CAMERA_NAME"
 echo "  view_azimuth_deg=$THIRD_PERSON_VIEW_AZIMUTH_DEG view_elevation_bias_m=$THIRD_PERSON_VIEW_ELEVATION_BIAS_M"
+echo "  cam_smooth(center=$CAM_CENTER_SMOOTH_ALPHA, dir=$CAM_DIR_SMOOTH_ALPHA) yaw_rate_limit=$CAM_YAW_RATE_LIMIT_DEG_S deadband=$CAM_MOTION_DEADBAND_MPS"
 echo "  observer_xyz=($OBSERVER_X, $OBSERVER_Y, $OBSERVER_Z)"
 if [ -n "$LEADER_X" ] && [ -n "$LEADER_Y" ]; then
   echo "  leader_xy=($LEADER_X, $LEADER_Y)"
@@ -270,8 +311,18 @@ CMD=(python3 "$WORKSPACE/scripts/phase4_delta_simple.py" \
   --capture-sec "$CAPTURE_SEC" \
   --pre-settle-retries "$PRE_SETTLE_RETRIES" \
   --formation-hold-sec "$FORMATION_HOLD_SEC" \
+  --circle-hold-sec "$CIRCLE_HOLD_SEC" \
   --min-separation-m "$MIN_SEPARATION_M" \
   --transition-z-lift "$TRANSITION_Z_LIFT" \
+  --z-lift-gain "$Z_LIFT_GAIN" \
+  --z-align-sec "$Z_ALIGN_SEC" \
+  --z-command-deadband-m "$Z_COMMAND_DEADBAND_M" \
+  --z-command-max-step-m "$Z_COMMAND_MAX_STEP_M" \
+  --z-command-hold-band-m "$Z_COMMAND_HOLD_BAND_M" \
+  --z-command-cooldown-sec "$Z_COMMAND_COOLDOWN_SEC" \
+  --z-collision-xy-thresh-m "$Z_COLLISION_XY_THRESH_M" \
+  --z-collision-min-dz-m "$Z_COLLISION_MIN_DZ_M" \
+  --z-collision-dz-gain-per-xy-m "$Z_COLLISION_DZ_GAIN_PER_XY_M" \
   --collision-hard-min-m "$COLLISION_HARD_MIN_M" \
   --collision-mitigation-rounds "$COLLISION_MITIGATION_ROUNDS" \
   --ca-crossing-penalty "$CA_CROSSING_PENALTY" \
@@ -280,6 +331,12 @@ CMD=(python3 "$WORKSPACE/scripts/phase4_delta_simple.py" \
   --ca-near-dist-m "$CA_NEAR_DIST_M" \
   --ca-slowdown-factor "$CA_SLOWDOWN_FACTOR" \
   --reanchor-gain "$REANCHOR_GAIN" \
+  --post-action-segment-sec "$POST_ACTION_SEGMENT_SEC" \
+  --post-action-style "$POST_ACTION_STYLE" \
+  --post-line-translate-m "$POST_LINE_TRANSLATE_M" \
+  --post-rotate-deg-list "$POST_ROTATE_DEG_LIST" \
+  --post-action-velocity-scale "$POST_ACTION_VELOCITY_SCALE" \
+  --post-action-pause-sec "$POST_ACTION_PAUSE_SEC" \
   --tol-m "$TOL_M" \
   --tol-xy-m "$TOL_XY_M" \
   --tol-z-m "$TOL_Z_M" \
@@ -294,6 +351,10 @@ CMD=(python3 "$WORKSPACE/scripts/phase4_delta_simple.py" \
   --third-person-update-hz "$THIRD_PERSON_UPDATE_HZ" \
   --third-person-view-azimuth-deg "$THIRD_PERSON_VIEW_AZIMUTH_DEG" \
   --third-person-view-elevation-bias-m "$THIRD_PERSON_VIEW_ELEVATION_BIAS_M" \
+  --cam-center-smooth-alpha "$CAM_CENTER_SMOOTH_ALPHA" \
+  --cam-dir-smooth-alpha "$CAM_DIR_SMOOTH_ALPHA" \
+  --cam-yaw-rate-limit-deg-s "$CAM_YAW_RATE_LIMIT_DEG_S" \
+  --cam-motion-deadband-mps "$CAM_MOTION_DEADBAND_MPS" \
   --observer-x "$OBSERVER_X" \
   --observer-y "$OBSERVER_Y" \
   --observer-z "$OBSERVER_Z" \
@@ -313,6 +374,12 @@ if [ -n "$LEADER_Y" ]; then
 fi
 if [ "$THIRD_PERSON_FOLLOW" = "1" ]; then
   CMD+=(--third-person-follow)
+fi
+if [ "$POST_ACTION_ENABLED" = "1" ]; then
+  CMD+=(--post-action-enabled)
+fi
+if [ "$TRANSITION_WHILE_MOVING" = "1" ]; then
+  CMD+=(--transition-while-moving)
 fi
 
 exec "${CMD[@]}"
