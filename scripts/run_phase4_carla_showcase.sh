@@ -41,6 +41,9 @@ SAFETY_RECOVERY_Z="${SAFETY_RECOVERY_Z:--3.50}"
 THIRD_PERSON_FOLLOW="${THIRD_PERSON_FOLLOW:-1}"
 THIRD_PERSON_MODE="${THIRD_PERSON_MODE:-external}"
 THIRD_PERSON_CAMERA_NAME="${THIRD_PERSON_CAMERA_NAME:-0}"
+SUBWINDOW_CAMERA_NAME="${SUBWINDOW_CAMERA_NAME:-back_center}"
+SUBWINDOW_VEHICLE="${SUBWINDOW_VEHICLE:-drone1}"
+AUTO_CAMERA_PROBE="${AUTO_CAMERA_PROBE:-1}"
 THIRD_PERSON_FOLLOW_VEHICLE="${THIRD_PERSON_FOLLOW_VEHICLE:-drone1}"
 THIRD_PERSON_DISTANCE_M="${THIRD_PERSON_DISTANCE_M:-14.0}"
 THIRD_PERSON_HEIGHT_M="${THIRD_PERSON_HEIGHT_M:-6.0}"
@@ -93,6 +96,8 @@ DRONE1_X="$DRONE1_X" DRONE1_Y="$DRONE1_Y" DRONE1_Z="$DRONE1_Z" \
 DRONE2_X="$DRONE2_X" DRONE2_Y="$DRONE2_Y" DRONE2_Z="$DRONE2_Z" \
 DRONE3_X="$DRONE3_X" DRONE3_Y="$DRONE3_Y" DRONE3_Z="$DRONE3_Z" \
 AIRSIM_VIEW_MODE="$AIRSIM_VIEW_MODE" \
+SUBWINDOW_CAMERA_NAME="$SUBWINDOW_CAMERA_NAME" \
+SUBWINDOW_VEHICLE="$SUBWINDOW_VEHICLE" \
 python3 - <<'PY'
 import json, os
 path = os.path.expanduser(os.environ["SETTINGS_DST"])
@@ -100,6 +105,13 @@ with open(path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
 data["ViewMode"] = os.environ.get("AIRSIM_VIEW_MODE", "Manual")
+data["SubWindows"] = [{
+    "WindowID": 0,
+    "CameraName": os.environ.get("SUBWINDOW_CAMERA_NAME", "0"),
+    "ImageType": 0,
+    "VehicleName": os.environ.get("SUBWINDOW_VEHICLE", "drone1"),
+    "Visible": True
+}]
 vehicles = data.get("Vehicles", {})
 offx = float(os.environ.get("SPAWN_OFFSET_X", "0.0"))
 offy = float(os.environ.get("SPAWN_OFFSET_Y", "0.0"))
@@ -133,6 +145,7 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 echo "  md5: $(md5sum "$SETTINGS_DST" | awk '{print $1}')"
 echo "  view mode: $AIRSIM_VIEW_MODE"
+echo "  subwindow: camera=$SUBWINDOW_CAMERA_NAME vehicle=$SUBWINDOW_VEHICLE"
 echo "  spawn offset xyz=($SPAWN_OFFSET_X, $SPAWN_OFFSET_Y, $SPAWN_OFFSET_Z)"
 if [ -n "$LEADER_X" ] && [ -n "$LEADER_Y" ]; then
   echo "  leader start xy=($LEADER_X, $LEADER_Y)"
@@ -144,6 +157,83 @@ log "[Step 2] CARLA 통합 UE 프로젝트에서 Stop -> Play"
 echo "  - AirSim settings는 Play 시점에만 재로딩됩니다."
 echo "  - CARLA 맵 로딩 후 drone1/2/3 spawn 확인"
 read -r -p "  준비되면 Enter: " _ || true
+
+if [ "$AUTO_CAMERA_PROBE" = "1" ]; then
+  log "[Step 2.1] 내장 카메라/센서 생존 진단"
+  AIRSIM_IP="$AIRSIM_IP" AIRSIM_PORT="$AIRSIM_PORT" SUBWINDOW_VEHICLE="$SUBWINDOW_VEHICLE" \
+  python3 - <<'PY'
+import os, sys
+import airsim
+ip = os.environ.get("AIRSIM_IP", "127.0.0.1")
+port = int(os.environ.get("AIRSIM_PORT", "41451"))
+vehicle = os.environ.get("SUBWINDOW_VEHICLE", "drone1")
+cams = ["0", "front_center", "fpv", "1", "2", "back_center", "bottom_center"]
+
+print(f"[camera-probe] airsim module: {getattr(airsim, '__file__', 'unknown')}")
+ClientCls = getattr(airsim, "MultirotorClient", None)
+if ClientCls is None:
+    try:
+        from airsim.client import MultirotorClient as ClientCls
+    except Exception as e:
+        print(f"[camera-probe] MultirotorClient import failed: {e}")
+        sys.exit(0)
+
+ImageRequestCls = getattr(airsim, "ImageRequest", None)
+ImageTypeScene = None
+if hasattr(airsim, "ImageType"):
+    try:
+        ImageTypeScene = airsim.ImageType.Scene
+    except Exception:
+        ImageTypeScene = None
+if ImageRequestCls is None or ImageTypeScene is None:
+    try:
+        from airsim.types import ImageRequest as ImageRequestCls, ImageType
+        ImageTypeScene = ImageType.Scene
+    except Exception as e:
+        print(f"[camera-probe] ImageRequest/ImageType import failed: {e}")
+        sys.exit(0)
+
+try:
+    c = ClientCls(ip=ip, port=port)
+    c.confirmConnection()
+except Exception as e:
+    print(f"[camera-probe] connect failed: {e}")
+    sys.exit(0)
+
+def score(resp):
+    if resp is None or resp.width <= 0 or resp.height <= 0:
+        return -1.0
+    data = resp.image_data_uint8
+    if data is None or len(data) == 0:
+        return -1.0
+    # RGB bytes mean intensity
+    step = max(1, len(data)//2000)
+    sample = data[0::step]
+    if not sample:
+        return -1.0
+    return float(sum(sample))/len(sample)
+
+best = None
+for cam in cams:
+    try:
+        resp = c.simGetImages([ImageRequestCls(cam, ImageTypeScene, False, False)], vehicle_name=vehicle)[0]
+        s = score(resp)
+        print(f"[camera-probe] {vehicle}:{cam} size={resp.width}x{resp.height} score={s:.2f}")
+        if best is None or s > best[1]:
+            best = (cam, s, resp.width, resp.height)
+    except Exception as e:
+        print(f"[camera-probe] {vehicle}:{cam} error={e}")
+
+if best is None:
+    print("[camera-probe] no camera response")
+else:
+    cam, s, w, h = best
+    if s < 0.5:
+        print(f"[camera-probe] all feeds look invalid/black. best={cam} score={s:.2f}")
+    else:
+        print(f"[camera-probe] 추천 camera={cam} (score={s:.2f}, {w}x{h})")
+PY
+fi
 
 log "[Step 3] Showcase 실행"
 echo "  ip=$AIRSIM_IP:$AIRSIM_PORT  patterns=$PATTERNS  vel=$VELOCITY"

@@ -9,10 +9,26 @@
     "Longitude": 126.9780,
     "Altitude": 38
   },
+  "CameraDefaults": {
+    "CaptureSettings": [
+      {
+        "ImageType": 0,
+        "Width": 640,
+        "Height": 360,
+        "FOV_Degrees": 90,
+        "AutoExposureSpeed": 100,
+        "AutoExposureBias": 0,
+        "AutoExposureMaxBrightness": 0.64,
+        "AutoExposureMinBrightness": 0.03,
+        "MotionBlurAmount": 0,
+        "TargetGamma": 1
+      }
+    ]
+  },
   "SubWindows": [
     {
       "WindowID": 0,
-      "CameraName": "front_center",
+      "CameraName": "0",
       "ImageType": 0,
       "VehicleName": "drone1",
       "Visible": true
