@@ -23,6 +23,8 @@ Usage:
 """
 
 import argparse
+import itertools
+import json
 import math
 import signal
 import sys
@@ -50,6 +52,51 @@ FORMATIONS_NED = {
     'ECHELON_R':    [(-2.0, -3.8, 0.0), (0.0, 0.0, 0.0), ( 2.0,  3.8, 0.0)],
     'ECHELON_L':    [(-2.0,  3.8, 0.0), (0.0, 0.0, 0.0), ( 2.0, -3.8, 0.0)],
 }
+
+# 5-drone 전용 대형 (배치 최적화/충돌 회피를 위해 충분한 간격 유지).
+FORMATIONS_NED_5 = {
+    'TRIANGLE': [
+        (0.0, 0.0, 0.0),
+        (-4.6, -3.2, 0.0),
+        (-4.6, 3.2, 0.0),
+        (-9.0, -1.8, 0.0),
+        (-9.0, 1.8, 0.0),
+    ],
+    'DIAMOND3': [
+        (0.0, 0.0, -0.8),
+        (-4.4, -2.6, 0.0),
+        (-4.4, 2.6, 0.0),
+        (-8.6, 0.0, 0.0),
+        (-11.8, 0.0, 0.2),
+    ],
+    'LINE_H': [
+        (-10.4, 0.0, 0.0),
+        (-5.2, 0.0, 0.0),
+        (0.0, 0.0, 0.0),
+        (5.2, 0.0, 0.0),
+        (10.4, 0.0, 0.0),
+    ],
+    'ECHELON_R': [
+        (-4.0, -7.6, 0.0),
+        (-2.0, -3.8, 0.0),
+        (0.0, 0.0, 0.0),
+        (2.0, 3.8, 0.0),
+        (4.0, 7.6, 0.0),
+    ],
+    'ECHELON_L': [
+        (-4.0, 7.6, 0.0),
+        (-2.0, 3.8, 0.0),
+        (0.0, 0.0, 0.0),
+        (2.0, -3.8, 0.0),
+        (4.0, -7.6, 0.0),
+    ],
+}
+
+
+def get_formations_for_count(drone_count: int) -> dict[str, list[tuple[float, float, float]]]:
+    if drone_count >= 5:
+        return FORMATIONS_NED_5
+    return FORMATIONS_NED
 
 ALTITUDE_M = 5.0   # 이륙 고도 (ENU). AirSim NED z = -ALTITUDE_M
 
@@ -145,6 +192,186 @@ def enforce_min_separation_points(
     return out
 
 
+def min_pairwise_distance(points: list[tuple[float, float, float]]) -> float:
+    if len(points) < 2:
+        return 9999.0
+    m = 9999.0
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            dx = points[i][0] - points[j][0]
+            dy = points[i][1] - points[j][1]
+            dz = points[i][2] - points[j][2]
+            d = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if d < m:
+                m = d
+    return m
+
+
+def _orient(ax: float, ay: float, bx: float, by: float, cx: float, cy: float) -> float:
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+
+def segments_intersect_2d(
+    a0: tuple[float, float],
+    a1: tuple[float, float],
+    b0: tuple[float, float],
+    b1: tuple[float, float],
+) -> bool:
+    o1 = _orient(a0[0], a0[1], a1[0], a1[1], b0[0], b0[1])
+    o2 = _orient(a0[0], a0[1], a1[0], a1[1], b1[0], b1[1])
+    o3 = _orient(b0[0], b0[1], b1[0], b1[1], a0[0], a0[1])
+    o4 = _orient(b0[0], b0[1], b1[0], b1[1], a1[0], a1[1])
+    return (o1 * o2 < 0.0) and (o3 * o4 < 0.0)
+
+
+def build_collision_aware_slot_assignment(
+    drone_names: list[str],
+    curr_world: dict[str, tuple[float, float, float]],
+    leader_end_xy: tuple[float, float],
+    next_offsets: list[tuple[float, float, float]],
+    min_sep_m: float,
+    crossing_penalty: float,
+    prev_slot_map: dict[str, int] | None = None,
+    continuity_penalty: float = 4.0,
+) -> dict[str, int]:
+    """드론 -> next formation slot index 할당 최적화 (교차/근접 비용 포함)."""
+    n = min(len(drone_names), len(next_offsets))
+    names = drone_names[:n]
+    slots = list(range(n))
+    best_cost = float("inf")
+    best = {names[i]: i for i in range(n)}
+    for perm in itertools.permutations(slots):
+        # perm[k] = names[k]에 할당될 slot index
+        endpoints: list[tuple[str, tuple[float, float, float]]] = []
+        cost = 0.0
+        for k, v in enumerate(names):
+            sidx = perm[k]
+            ox, oy, oz = next_offsets[sidx]
+            tx = leader_end_xy[0] + ox
+            ty = leader_end_xy[1] + oy
+            tz = -ALTITUDE_M + oz
+            cw = curr_world[v]
+            dx = cw[0] - tx
+            dy = cw[1] - ty
+            dz = cw[2] - tz
+            cost += math.sqrt(dx * dx + dy * dy + dz * dz)
+            if prev_slot_map is not None and v in prev_slot_map and prev_slot_map[v] != sidx:
+                cost += continuity_penalty
+            endpoints.append((v, (tx, ty, tz)))
+
+        # pairwise crossing + endpoint separation penalty
+        for i in range(n):
+            va, ta = endpoints[i]
+            sa = curr_world[va]
+            for j in range(i + 1, n):
+                vb, tb = endpoints[j]
+                sb = curr_world[vb]
+                if segments_intersect_2d((sa[0], sa[1]), (ta[0], ta[1]), (sb[0], sb[1]), (tb[0], tb[1])):
+                    cost += crossing_penalty
+                ddx = ta[0] - tb[0]
+                ddy = ta[1] - tb[1]
+                d = math.sqrt(ddx * ddx + ddy * ddy)
+                if d < min_sep_m:
+                    cost += (min_sep_m - d) * (crossing_penalty * 0.6)
+
+        if cost < best_cost:
+            best_cost = cost
+            best = {names[k]: perm[k] for k in range(n)}
+    return best
+
+
+def estimate_leader_from_actual(
+    client: airsim.MultirotorClient,
+    drone_names: list[str],
+    slot_map: dict[str, int],
+    offsets: list[tuple[float, float, float]],
+    leader_z: float,
+) -> tuple[float, float, float] | None:
+    est = []
+    for i, v in enumerate(drone_names):
+        sidx = slot_map.get(v, i)
+        if sidx >= len(offsets):
+            continue
+        nox, noy, noz = offsets[sidx]
+        st = client.getMultirotorState(vehicle_name=v)
+        wx, wy, wz = world_pos(st, v)
+        # world = leader + offset  => leader = world - offset
+        est.append((wx - nox, wy - noy, wz - noz))
+    if not est:
+        return None
+    lx = sum(p[0] for p in est) / len(est)
+    ly = sum(p[1] for p in est) / len(est)
+    lz = sum(p[2] for p in est) / len(est)
+    # z는 기존 고도 기준 유지
+    return (lx, ly, leader_z if abs(lz - leader_z) < 1.5 else lz)
+
+
+def update_spawn_from_settings(settings_path: str, drone_names: list[str]) -> bool:
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        vehicles = data.get("Vehicles", {})
+        loaded = 0
+        for v in drone_names:
+            info = vehicles.get(v)
+            if not isinstance(info, dict):
+                continue
+            x = float(info.get("X", 0.0))
+            y = float(info.get("Y", 0.0))
+            z = float(info.get("Z", 0.0))
+            SPAWN_NED[v] = (x, y, z)
+            loaded += 1
+        return loaded > 0
+    except Exception:
+        return False
+
+
+def settle_to_pattern(
+    client: airsim.MultirotorClient,
+    drone_names: list[str],
+    pattern_name: str,
+    leader_xyz: tuple[float, float, float],
+    velocity: float,
+    tol_m: float,
+    tol_xy_m: float,
+    tol_z_m: float,
+    retries: int,
+) -> tuple[bool, dict[str, tuple[float, float, float]]]:
+    formations = get_formations_for_count(len(drone_names))
+    offsets = formations.get(pattern_name, [])
+    targets: dict[str, tuple[float, float, float]] = {}
+    lx, ly, lz = leader_xyz
+    for i, v in enumerate(drone_names):
+        if i >= len(offsets):
+            continue
+        ox, oy, oz = offsets[i]
+        targets[v] = (lx + ox, ly + oy, lz + oz)
+
+    for attempt in range(1, retries + 1):
+        fs = []
+        for v, (tx, ty, tz) in targets.items():
+            fs.append((v, move_world_ned(client, v, tx, ty, tz, velocity)))
+        for _v, f in fs:
+            f.join()
+        all_ok = True
+        for v, (tx, ty, tz) in targets.items():
+            reached, pos, err, err_xy, err_z = verify_target(
+                client, v, (tx, ty, tz), tol_m, tol_xy_m, tol_z_m
+            )
+            if not reached:
+                all_ok = False
+                wx, wy, wz = pos
+                print(
+                    f'    [pre-settle-miss] {v} world=({wx:+.2f},{wy:+.2f},{wz:+.2f}) '
+                    f'target=({tx:+.2f},{ty:+.2f},{tz:+.2f}) err={err:.3f}m '
+                    f'xy={err_xy:.3f} z={err_z:.3f} attempt={attempt}/{retries}'
+                )
+        if all_ok:
+            print(f'    [pre-settle-ok] {pattern_name} aligned in {attempt}/{retries}')
+            return True, targets
+    return False, targets
+
+
 def verify_target(
     client: airsim.MultirotorClient,
     v_name: str,
@@ -202,6 +429,22 @@ def calc_look_quaternion(
     return airsim.to_quaternion(pitch, 0.0, yaw)
 
 
+def get_swarm_center(
+    client: airsim.MultirotorClient,
+    drone_names: list[str],
+) -> tuple[float, float, float] | None:
+    points = []
+    for v in drone_names:
+        st = client.getMultirotorState(vehicle_name=v)
+        points.append(world_pos(st, v))
+    if not points:
+        return None
+    cx = sum(p[0] for p in points) / len(points)
+    cy = sum(p[1] for p in points) / len(points)
+    cz = sum(p[2] for p in points) / len(points)
+    return (cx, cy, cz)
+
+
 def update_third_person_follow_camera(
     client: airsim.MultirotorClient,
     drone_names: list[str],
@@ -211,16 +454,9 @@ def update_third_person_follow_camera(
     height_m: float,
     lookahead_m: float,
 ) -> None:
-    points = []
-    for v in drone_names:
-        st = client.getMultirotorState(vehicle_name=v)
-        points.append(world_pos(st, v))
-    if not points:
+    center = get_swarm_center(client, drone_names)
+    if center is None:
         return
-    cx = sum(p[0] for p in points) / len(points)
-    cy = sum(p[1] for p in points) / len(points)
-    cz = sum(p[2] for p in points) / len(points)
-    center = (cx, cy, cz)
 
     anchor_st = client.getMultirotorState(vehicle_name=follow_vehicle)
     ax, ay, az = world_pos(anchor_st, follow_vehicle)
@@ -245,6 +481,112 @@ def update_third_person_follow_camera(
     client.simSetCameraPose(camera_name, local_pose, vehicle_name=follow_vehicle)
 
 
+def update_external_follow_camera(
+    client: airsim.MultirotorClient,
+    drone_names: list[str],
+    camera_name: str,
+    distance_m: float,
+    height_m: float,
+    lookahead_m: float,
+    view_azimuth_deg: float,
+    view_elevation_bias_m: float,
+    state: dict,
+) -> None:
+    points = []
+    for v in drone_names:
+        st = client.getMultirotorState(vehicle_name=v)
+        points.append(world_pos(st, v))
+    if not points:
+        return
+    cx = sum(p[0] for p in points) / len(points)
+    cy = sum(p[1] for p in points) / len(points)
+    cz = sum(p[2] for p in points) / len(points)
+    center = (cx, cy, cz)
+
+    prev_center = state.get("prev_center")
+    if prev_center is None:
+        vx, vy = 1.0, 0.0
+    else:
+        vx = center[0] - prev_center[0]
+        vy = center[1] - prev_center[1]
+    n = math.sqrt(vx * vx + vy * vy)
+    if n < 1e-3:
+        ux, uy = 1.0, 0.0
+    else:
+        ux, uy = vx / n, vy / n
+
+    az = math.radians(view_azimuth_deg)
+    # 이동방향 벡터 (ux,uy)를 기준으로 카메라 방향을 회전.
+    # az=180이면 정후방 추적, 135면 후좌측 대각, 90이면 측면.
+    rx = ux * math.cos(az) - uy * math.sin(az)
+    ry = ux * math.sin(az) + uy * math.cos(az)
+    rn = math.sqrt(rx * rx + ry * ry)
+    if rn < 1e-3:
+        rx, ry = -ux, -uy
+    else:
+        rx, ry = rx / rn, ry / rn
+
+    tx = center[0] + ux * lookahead_m
+    ty = center[1] + uy * lookahead_m
+    tz = center[2]
+    cam_x = center[0] + rx * distance_m
+    cam_y = center[1] + ry * distance_m
+    cam_z = center[2] - height_m + view_elevation_bias_m
+    q = calc_look_quaternion((cam_x, cam_y, cam_z), (tx, ty, tz))
+    world_pose = Pose(Vector3r(cam_x, cam_y, cam_z), q)
+    client.simSetCameraPose(camera_name, world_pose)
+    state["prev_center"] = center
+
+
+def update_center_follow_camera(
+    client: airsim.MultirotorClient,
+    drone_names: list[str],
+    camera_name: str,
+    back_distance_m: float,
+    up_height_m: float,
+    lookahead_m: float,
+    state: dict,
+) -> None:
+    center = get_swarm_center(client, drone_names)
+    if center is None:
+        return
+    prev_center = state.get("prev_center")
+    if prev_center is None:
+        ux, uy = 1.0, 0.0
+    else:
+        vx = center[0] - prev_center[0]
+        vy = center[1] - prev_center[1]
+        n = math.sqrt(vx * vx + vy * vy)
+        if n < 1e-3:
+            ux, uy = 1.0, 0.0
+        else:
+            ux, uy = vx / n, vy / n
+
+    cam_x = center[0] - ux * back_distance_m
+    cam_y = center[1] - uy * back_distance_m
+    cam_z = center[2] - up_height_m
+    tx = center[0] + ux * lookahead_m
+    ty = center[1] + uy * lookahead_m
+    tz = center[2]
+    q = calc_look_quaternion((cam_x, cam_y, cam_z), (tx, ty, tz))
+    client.simSetCameraPose(camera_name, Pose(Vector3r(cam_x, cam_y, cam_z), q))
+    state["prev_center"] = center
+
+
+def update_observer_camera(
+    client: airsim.MultirotorClient,
+    drone_names: list[str],
+    camera_name: str,
+    observer_xyz: tuple[float, float, float],
+) -> None:
+    center = get_swarm_center(client, drone_names)
+    if center is None:
+        return
+    ox, oy, oz = observer_xyz
+    q = calc_look_quaternion((ox, oy, oz), center)
+    client.simSetCameraPose(camera_name, Pose(Vector3r(ox, oy, oz), q))
+
+
 # NOTE:
 # 이 Colosseum 빌드의 multi-vehicle 에서는 moveToPositionAsync 가 vehicle local NED 로
 # 해석되는 케이스가 재현됨. 따라서 world target 을 직접 넣지 않고 move_world_ned()
@@ -256,13 +598,16 @@ def main() -> int:
     p.add_argument('--drones', type=int, default=3)
     p.add_argument('--ip', default='127.0.0.1')
     p.add_argument('--port', type=int, default=41451)
+    p.add_argument('--settings-json', default='',
+                   help='AirSim settings.json 경로. 지정 시 Vehicles spawn(X/Y/Z)로 SPAWN_NED 갱신')
     p.add_argument('--patterns', default='TRIANGLE,LINE_H,ECHELON_R,DIAMOND3,ECHELON_L',
                    help='쉼표 구분 패턴 순환 시퀀스')
     p.add_argument('--hold-sec', type=float, default=8.0,
                    help='패턴 도달 후 hover hold 시간 (s)')
-    p.add_argument('--leader-x', type=float, default=0.0,
-                   help='leader x (NED, m). default 0 = drone1 spawn 근처')
-    p.add_argument('--leader-y', type=float, default=0.0)
+    p.add_argument('--leader-x', type=float, default=None,
+                   help='leader x (NED, m). 미지정 시 drone1 spawn x 사용')
+    p.add_argument('--leader-y', type=float, default=None,
+                   help='leader y (NED, m). 미지정 시 drone1 spawn y 사용')
     p.add_argument('--velocity', type=float, default=3.0,
                    help='moveToPosition 속도 (m/s)')
     p.add_argument('--prefix', default='drone',
@@ -291,12 +636,32 @@ def main() -> int:
                    help='showcase 모드에서 드론별 명령 발행 간격 (ms)')
     p.add_argument('--capture-sec', type=float, default=3.5,
                    help='showcase 세그먼트 후 최종 포메이션 수렴 대기 시간 (s)')
+    p.add_argument('--pre-settle', action='store_true',
+                   help='showcase 세그먼트 시작 전 현재 패턴을 완전히 맞춘 뒤 전환')
+    p.add_argument('--pre-settle-retries', type=int, default=3,
+                   help='pre-settle 정렬 재시도 횟수')
     p.add_argument('--formation-hold-sec', type=float, default=10.0,
                    help='showcase 모드에서 각 포메이션 유지 시간 (s)')
     p.add_argument('--min-separation-m', type=float, default=4.0,
                    help='showcase 전환 중 드론 간 최소 xy 간격 (m)')
     p.add_argument('--transition-z-lift', type=float, default=0.9,
                    help='showcase 전환 중 인접 드론 충돌 회피용 고도 레이어 진폭 (m)')
+    p.add_argument('--collision-hard-min-m', type=float, default=2.6,
+                   help='전환 경로 사전검사 최소 허용 거리(m). 미만이면 자동 완화 재시도')
+    p.add_argument('--collision-mitigation-rounds', type=int, default=3,
+                   help='충돌 위험 시 완화(감속/고도분리) 자동 재시도 횟수')
+    p.add_argument('--ca-crossing-penalty', type=float, default=20.0,
+                   help='충돌회피 슬롯할당 시 경로 교차 패널티 가중치')
+    p.add_argument('--ca-continuity-penalty', type=float, default=6.0,
+                   help='이전 세그먼트 대비 슬롯 변경 패널티(역할 뒤바뀜 억제)')
+    p.add_argument('--role-assignment', choices=['fixed', 'optimized'], default='fixed',
+                   help='fixed=드론 역할 고정(충돌안전 우선), optimized=이동량 최소 슬롯 재할당')
+    p.add_argument('--ca-near-dist-m', type=float, default=6.0,
+                   help='가까운 상태로 판단하는 pairwise 거리 임계값 (m)')
+    p.add_argument('--ca-slowdown-factor', type=float, default=0.72,
+                   help='근접 시 세그먼트 속도 배율(0~1)')
+    p.add_argument('--reanchor-gain', type=float, default=0.85,
+                   help='포메이션 종료 후 리더 재보정 반영 비율(0~1)')
     p.add_argument('--safety-floor-z', type=float, default=-0.20,
                    help='월드 NED 안전 바닥. z가 이 값보다 커지면(지면 아래) 즉시 복구')
     p.add_argument('--safety-recovery-z', type=float, default=-3.50,
@@ -305,6 +670,8 @@ def main() -> int:
                    help='3인칭 자동 추적 카메라 활성화 (follow vehicle 카메라를 포메이션 중심으로 이동)')
     p.add_argument('--third-person-camera-name', default='front_center',
                    help='3인칭 추적에 사용할 camera name')
+    p.add_argument('--third-person-mode', choices=['vehicle', 'external', 'center_follow', 'observer'], default='external',
+                   help='vehicle=드론 탑재, external=외부 추적, center_follow=중심점 추적, observer=고정 관찰')
     p.add_argument('--third-person-follow-vehicle', default='drone1',
                    help='3인칭 카메라를 탑재할 vehicle name')
     p.add_argument('--third-person-distance-m', type=float, default=14.0,
@@ -315,11 +682,29 @@ def main() -> int:
                    help='포메이션 진행 방향 전방 바라보기 거리 (m)')
     p.add_argument('--third-person-update-hz', type=float, default=8.0,
                    help='3인칭 추적 카메라 업데이트 주기 (Hz)')
+    p.add_argument('--third-person-view-azimuth-deg', type=float, default=135.0,
+                   help='external 모드 카메라 시점 각도(이동방향 기준, 도). 180=후방, 135=후좌측, 90=측면')
+    p.add_argument('--third-person-view-elevation-bias-m', type=float, default=0.0,
+                   help='external 모드 카메라 높이 보정 (m)')
+    p.add_argument('--observer-x', type=float, default=0.0,
+                   help='observer 모드 카메라 월드 NED X')
+    p.add_argument('--observer-y', type=float, default=0.0,
+                   help='observer 모드 카메라 월드 NED Y')
+    p.add_argument('--observer-z', type=float, default=-20.0,
+                   help='observer 모드 카메라 월드 NED Z (음수일수록 높음)')
     args = p.parse_args()
 
     drone_names = [f'{args.prefix}{i}' for i in range(1, args.drones + 1)]
+    formations = get_formations_for_count(args.drones)
+    if args.settings_json:
+        ok_spawn = update_spawn_from_settings(args.settings_json, drone_names)
+        if ok_spawn:
+            print(f'[spawn] loaded from settings: {args.settings_json}')
+            print(f'  SPAWN_NED={SPAWN_NED}')
+        else:
+            print(f'[spawn-warn] settings load failed, fallback SPAWN_NED={SPAWN_NED}')
     pattern_seq = [s.strip().upper() for s in args.patterns.split(',') if s.strip()]
-    pattern_seq = [s for s in pattern_seq if s in FORMATIONS_NED]
+    pattern_seq = [s for s in pattern_seq if s in formations]
     if not pattern_seq:
         print('ERROR: --patterns 에 유효한 패턴 없음. 가능: TRIANGLE,LINE_H,ECHELON_R,DIAMOND3,ECHELON_L',
               file=sys.stderr)
@@ -329,7 +714,15 @@ def main() -> int:
     print('  AERION Phase 4-Δ Simple Runner (AirSim 공식 패턴)')
     print(f'    drones={drone_names}')
     print(f'    patterns={pattern_seq}')
-    print(f'    leader NED=({args.leader_x}, {args.leader_y}, {-ALTITUDE_M})')
+    leader_x_cfg = args.leader_x
+    leader_y_cfg = args.leader_y
+    if leader_x_cfg is None or leader_y_cfg is None:
+        s1 = SPAWN_NED.get(f'{args.prefix}1', (0.0, 0.0, 0.0))
+        if leader_x_cfg is None:
+            leader_x_cfg = s1[0]
+        if leader_y_cfg is None:
+            leader_y_cfg = s1[1]
+    print(f'    leader NED=({leader_x_cfg}, {leader_y_cfg}, {-ALTITUDE_M})')
     print(f'    velocity={args.velocity} m/s, hold={args.hold_sec}s')
     print(f'    control_mode={args.control_mode}')
     print(f'    tol3d={args.tol_m}m, tol_xy={args.tol_xy_m}m, tol_z={args.tol_z_m}m')
@@ -337,14 +730,29 @@ def main() -> int:
     print(f'    fallback_teleport_on_miss={args.fallback_teleport_on_miss}')
     print(f'    segment_sec={args.segment_sec}, tick_hz={args.tick_hz}, stagger_ms={args.command_stagger_ms}')
     print(f'    capture_sec={args.capture_sec}')
+    print(f'    pre_settle={args.pre_settle}, pre_settle_retries={args.pre_settle_retries}')
     print(f'    formation_hold_sec={args.formation_hold_sec}')
     print(f'    min_separation_m={args.min_separation_m}, transition_z_lift={args.transition_z_lift}')
+    print(
+        f'    collision_hard_min_m={args.collision_hard_min_m}, '
+        f'collision_mitigation_rounds={args.collision_mitigation_rounds}'
+    )
+    print(
+        f'    ca_crossing_penalty={args.ca_crossing_penalty}, ca_continuity_penalty={args.ca_continuity_penalty}, '
+        f'ca_near_dist_m={args.ca_near_dist_m}, '
+        f'ca_slowdown_factor={args.ca_slowdown_factor}'
+    )
+    print(f'    role_assignment={args.role_assignment}')
+    print(f'    reanchor_gain={args.reanchor_gain}')
     print(f'    safety_floor_z={args.safety_floor_z}, safety_recovery_z={args.safety_recovery_z}')
     print(
         f'    third_person_follow={args.third_person_follow}, camera={args.third_person_camera_name}, '
-        f'follow_vehicle={args.third_person_follow_vehicle}, distance={args.third_person_distance_m}, '
+        f'mode={args.third_person_mode}, follow_vehicle={args.third_person_follow_vehicle}, '
+        f'distance={args.third_person_distance_m}, '
         f'height={args.third_person_height_m}, lookahead={args.third_person_lookahead_m}, '
-        f'update_hz={args.third_person_update_hz}'
+        f'update_hz={args.third_person_update_hz}, view_azimuth_deg={args.third_person_view_azimuth_deg}, '
+        f'view_elevation_bias_m={args.third_person_view_elevation_bias_m}, '
+        f'observer=({args.observer_x}, {args.observer_y}, {args.observer_z})'
     )
     print('=' * 60)
 
@@ -356,7 +764,7 @@ def main() -> int:
     if not all(v in listed for v in drone_names):
         missing = [v for v in drone_names if v not in listed]
         print(f'WARN: {missing} 가 scene 에 없음. UE Stop/Play 다시 시도하거나 --prefix 확인.')
-    if args.third_person_follow and args.third_person_follow_vehicle not in listed:
+    if args.third_person_follow and args.third_person_mode == 'vehicle' and args.third_person_follow_vehicle not in listed:
         print(
             f'WARN: follow vehicle({args.third_person_follow_vehicle}) 가 scene 에 없음. '
             f'기본 {drone_names[0]} 으로 대체'
@@ -365,6 +773,7 @@ def main() -> int:
 
     cam_dt = 1.0 / max(1.0, args.third_person_update_hz)
     last_cam_t = 0.0
+    cam_state = {"prev_center": None}
 
     def maybe_update_camera(force: bool = False):
         nonlocal last_cam_t
@@ -374,15 +783,45 @@ def main() -> int:
         if not force and now - last_cam_t < cam_dt:
             return
         try:
-            update_third_person_follow_camera(
-                c,
-                drone_names,
-                args.third_person_follow_vehicle,
-                args.third_person_camera_name,
-                args.third_person_distance_m,
-                args.third_person_height_m,
-                args.third_person_lookahead_m,
-            )
+            if args.third_person_mode == 'external':
+                update_external_follow_camera(
+                    c,
+                    drone_names,
+                    args.third_person_camera_name,
+                    args.third_person_distance_m,
+                    args.third_person_height_m,
+                    args.third_person_lookahead_m,
+                    args.third_person_view_azimuth_deg,
+                    args.third_person_view_elevation_bias_m,
+                    cam_state,
+                )
+            elif args.third_person_mode == 'center_follow':
+                update_center_follow_camera(
+                    c,
+                    drone_names,
+                    args.third_person_camera_name,
+                    args.third_person_distance_m,
+                    args.third_person_height_m,
+                    args.third_person_lookahead_m,
+                    cam_state,
+                )
+            elif args.third_person_mode == 'observer':
+                update_observer_camera(
+                    c,
+                    drone_names,
+                    args.third_person_camera_name,
+                    (args.observer_x, args.observer_y, args.observer_z),
+                )
+            else:
+                update_third_person_follow_camera(
+                    c,
+                    drone_names,
+                    args.third_person_follow_vehicle,
+                    args.third_person_camera_name,
+                    args.third_person_distance_m,
+                    args.third_person_height_m,
+                    args.third_person_lookahead_m,
+                )
             last_cam_t = now
         except Exception as e:
             print(f'    [camera-warn] {e}')
@@ -458,15 +897,16 @@ def main() -> int:
 
     # ---- Step 3: 패턴 순환 ----
     print(f'\n[Step 3] 패턴 순환 시작 (Ctrl+C 종료)')
-    leader_x = args.leader_x
-    leader_y = args.leader_y
+    leader_x = leader_x_cfg
+    leader_y = leader_y_cfg
     leader_z = -ALTITUDE_M
     idx = 0
     cycle = 0
+    prev_slot_map: dict[str, int] | None = None
     stats: list[tuple[int, str, str, float, str]] = []
     while args.cycles == 0 or cycle < args.cycles:
         pat = pattern_seq[idx % len(pattern_seq)]
-        offsets = FORMATIONS_NED[pat]
+        offsets = formations[pat]
         print(f'\n  [pattern {idx+1} → {pat}]')
         enforce_safety_floor(
             c, drone_names, args.safety_floor_z, args.safety_recovery_z, args.velocity
@@ -610,8 +1050,23 @@ def main() -> int:
             # 포메이션을 다음 패턴으로 부드럽게 변환한다.
             curr_pat = pattern_seq[idx % len(pattern_seq)]
             next_pat = pattern_seq[(idx + 1) % len(pattern_seq)]
-            curr_offsets = FORMATIONS_NED[curr_pat]
-            next_offsets = FORMATIONS_NED[next_pat]
+            curr_offsets = formations[curr_pat]
+            next_offsets = formations[next_pat]
+
+            if args.pre_settle:
+                pre_ok, _pre_targets = settle_to_pattern(
+                    c,
+                    drone_names,
+                    curr_pat,
+                    (leader_x, leader_y, leader_z),
+                    max(1.8, args.velocity * 0.75),
+                    args.tol_m,
+                    args.tol_xy_m,
+                    args.tol_z_m,
+                    args.pre_settle_retries,
+                )
+                if not pre_ok:
+                    print('    [pre-settle-warn] current pattern alignment not perfect, continue with caution')
 
             waypoints = [
                 (leader_x, leader_y),
@@ -628,36 +1083,103 @@ def main() -> int:
             steps = max(2, int(args.segment_sec * args.tick_hz))
             dt = 1.0 / max(args.tick_hz, 1.0)
             print(f'    [showcase] {curr_pat} -> {next_pat}, leader {a} -> {b}, steps={steps}')
-            per_drone_world_path: dict[str, list[tuple[float, float, float]]] = {v: [] for v in drone_names}
-            for s in range(steps + 1):
-                t = s / steps
-                et = smoothstep(t)
-                lx = lerp(a[0], b[0], et)
-                ly = lerp(a[1], b[1], et)
-                step_targets: list[tuple[str, float, float, float]] = []
+            curr_world: dict[str, tuple[float, float, float]] = {}
+            for v in drone_names:
+                st = c.getMultirotorState(vehicle_name=v)
+                curr_world[v] = world_pos(st, v)
+            if args.role_assignment == 'fixed':
+                slot_map = {}
                 for i, v in enumerate(drone_names):
-                    if i >= len(curr_offsets) or i >= len(next_offsets):
-                        continue
-                    cox, coy, coz = curr_offsets[i]
-                    nox, noy, noz = next_offsets[i]
-                    ox = lerp(cox, nox, et)
-                    oy = lerp(coy, noy, et)
-                    oz = lerp(coz, noz, et)
-                    # 전환 중 교차 시 충돌 완화를 위한 얕은 고도 레이어
-                    oz += (i - 1) * args.transition_z_lift * math.sin(math.pi * et)
-                    tx = lx + ox
-                    ty = ly + oy
-                    tz = leader_z + oz
-                    step_targets.append((v, tx, ty, tz))
+                    slot_map[v] = i
+            else:
+                slot_map = build_collision_aware_slot_assignment(
+                    drone_names,
+                    curr_world,
+                    b,
+                    next_offsets,
+                    args.min_separation_m,
+                    args.ca_crossing_penalty,
+                    prev_slot_map=prev_slot_map,
+                    continuity_penalty=args.ca_continuity_penalty,
+                )
+            print(f'    [deconflict] slot_map={slot_map}')
+            prev_slot_map = slot_map.copy()
+            per_drone_world_path: dict[str, list[tuple[float, float, float]]] = {v: [] for v in drone_names}
+            path_vel_scale = 1.0
+            z_lift_scale = 1.0
+            for mitigate_round in range(args.collision_mitigation_rounds + 1):
+                for v in per_drone_world_path:
+                    per_drone_world_path[v].clear()
+                worst_min_d = 9999.0
+                for s in range(steps + 1):
+                    t = s / steps
+                    et = smoothstep(t)
+                    lx = lerp(a[0], b[0], et)
+                    ly = lerp(a[1], b[1], et)
+                    step_targets: list[tuple[str, float, float, float]] = []
+                    for i, v in enumerate(drone_names):
+                        if v not in curr_world:
+                            continue
+                        sidx = slot_map.get(v, i)
+                        if sidx >= len(next_offsets):
+                            continue
+                        if args.pre_settle:
+                            if i >= len(curr_offsets):
+                                continue
+                            cox, coy, coz = curr_offsets[i]
+                        else:
+                            cox = curr_world[v][0] - a[0]
+                            coy = curr_world[v][1] - a[1]
+                            coz = curr_world[v][2] - leader_z
+                        nox, noy, noz = next_offsets[sidx]
+                        ox = lerp(cox, nox, et)
+                        oy = lerp(coy, noy, et)
+                        oz = lerp(coz, noz, et)
+                        oz += (i - 1) * args.transition_z_lift * z_lift_scale * math.sin(math.pi * et)
+                        tx = lx + ox
+                        ty = ly + oy
+                        tz = leader_z + oz
+                        step_targets.append((v, tx, ty, tz))
 
-                step_targets = enforce_min_separation_points(step_targets, args.min_separation_m)
-                for v, tx, ty, tz in step_targets:
-                    per_drone_world_path[v].append((tx, ty, tz))
-                maybe_update_camera()
+                    step_targets = enforce_min_separation_points(step_targets, args.min_separation_m)
+                    step_xyz = [(tx, ty, tz) for _v, tx, ty, tz in step_targets]
+                    dmin = min_pairwise_distance(step_xyz)
+                    if dmin < worst_min_d:
+                        worst_min_d = dmin
+                    for v, tx, ty, tz in step_targets:
+                        per_drone_world_path[v].append((tx, ty, tz))
+                    maybe_update_camera()
+
+                if worst_min_d >= args.collision_hard_min_m:
+                    if mitigate_round > 0:
+                        print(
+                            f'    [collision-mitigated] round={mitigate_round}, '
+                            f'min_step_dist={worst_min_d:.2f}m'
+                        )
+                    break
+                if mitigate_round < args.collision_mitigation_rounds:
+                    path_vel_scale *= 0.84
+                    z_lift_scale *= 1.35
+                    print(
+                        f'    [collision-risk] min_step_dist={worst_min_d:.2f}m < {args.collision_hard_min_m:.2f}m '
+                        f'-> retry(round={mitigate_round+1}) with slower+more_z_separation'
+                    )
 
             # 고빈도 moveToPosition 재발행 대신 moveOnPathAsync 1회로 경로추종.
             path_fs = []
-            path_vel = max(1.6, args.velocity * 0.75)
+            near_pairs = 0
+            pos_now = [curr_world[v] for v in drone_names if v in curr_world]
+            for i in range(len(pos_now)):
+                for j in range(i + 1, len(pos_now)):
+                    dx = pos_now[i][0] - pos_now[j][0]
+                    dy = pos_now[i][1] - pos_now[j][1]
+                    dz = pos_now[i][2] - pos_now[j][2]
+                    if math.sqrt(dx * dx + dy * dy + dz * dz) < args.ca_near_dist_m:
+                        near_pairs += 1
+            speed_scale = args.ca_slowdown_factor if near_pairs > 0 else 1.0
+            path_vel = max(1.2, args.velocity * 0.75 * speed_scale * path_vel_scale)
+            if near_pairs > 0:
+                print(f'    [deconflict] near_pairs={near_pairs}, path_vel={path_vel:.2f}m/s')
             for v in drone_names:
                 pts_world = per_drone_world_path.get(v, [])
                 if len(pts_world) < 2:
@@ -686,9 +1208,10 @@ def main() -> int:
             # 최종 포메이션 target을 다시 발행하고 join으로 수렴을 보장한다.
             final_fs = []
             for i, v in enumerate(drone_names):
-                if i >= len(next_offsets):
+                sidx = slot_map.get(v, i)
+                if sidx >= len(next_offsets):
                     continue
-                nox, noy, noz = next_offsets[i]
+                nox, noy, noz = next_offsets[sidx]
                 tx = b[0] + nox
                 ty = b[1] + noy
                 tz = leader_z + noz
@@ -710,9 +1233,10 @@ def main() -> int:
             misses = 0
             miss_list = []
             for i, v in enumerate(drone_names):
-                if i >= len(next_offsets):
+                sidx = slot_map.get(v, i)
+                if sidx >= len(next_offsets):
                     continue
-                nox, noy, noz = next_offsets[i]
+                nox, noy, noz = next_offsets[sidx]
                 tx = b[0] + nox
                 ty = b[1] + noy
                 tz = leader_z + noz
@@ -770,9 +1294,10 @@ def main() -> int:
                 while time.time() - hold_start < args.formation_hold_sec:
                     hold_fs = []
                     for i, v in enumerate(drone_names):
-                        if i >= len(next_offsets):
+                        sidx = slot_map.get(v, i)
+                        if sidx >= len(next_offsets):
                             continue
-                        nox, noy, noz = next_offsets[i]
+                        nox, noy, noz = next_offsets[sidx]
                         tx = b[0] + nox
                         ty = b[1] + noy
                         tz = leader_z + noz
@@ -784,7 +1309,21 @@ def main() -> int:
                     )
                     maybe_update_camera()
                     time.sleep(0.6)
-            leader_x, leader_y = b[0], b[1]
+            # 누적 꼬임 방지: 실제 드론 위치로 leader 기준 재보정
+            est_leader = estimate_leader_from_actual(
+                c, drone_names, slot_map, next_offsets, leader_z
+            )
+            if est_leader is not None:
+                ex, ey, _ez = est_leader
+                gx = max(0.0, min(1.0, args.reanchor_gain))
+                leader_x = lerp(b[0], ex, gx)
+                leader_y = lerp(b[1], ey, gx)
+                print(
+                    f'    [reanchor] planned=({b[0]:+.2f},{b[1]:+.2f}) '
+                    f'est=({ex:+.2f},{ey:+.2f}) -> next_leader=({leader_x:+.2f},{leader_y:+.2f})'
+                )
+            else:
+                leader_x, leader_y = b[0], b[1]
             if misses > 0 and args.fail_on_miss:
                 return 2
 
