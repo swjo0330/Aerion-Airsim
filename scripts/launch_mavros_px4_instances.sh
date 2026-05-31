@@ -2,8 +2,9 @@
 # Launch one MAVROS PX4 instance per drone using the AERION port convention.
 set -euo pipefail
 
-DRONE_COUNT="${DRONE_COUNT:-2}"
+DRONE_COUNT="${DRONE_COUNT:-3}"
 PX4_INSTANCE_IDS="${PX4_INSTANCE_IDS:-}"
+MAVROS_NAMESPACE_STYLE="${MAVROS_NAMESPACE_STYLE:-drone}"
 MAVROS_NAMESPACE_PREFIX="${MAVROS_NAMESPACE_PREFIX:-mavros}"
 FCU_BIND_BASE_PORT="${FCU_BIND_BASE_PORT:-14540}"
 PX4_REMOTE_BASE_PORT="${PX4_REMOTE_BASE_PORT:-14580}"
@@ -41,14 +42,18 @@ fi
 
 for ((i = 0; i < DRONE_COUNT; i++)); do
     px4_instance="${instance_ids[$i]}"
-    namespace="${MAVROS_NAMESPACE_PREFIX}${i}"
+    if [ "$MAVROS_NAMESPACE_STYLE" = "drone" ]; then
+        namespace="drone$((i + 1))/mavros"
+    else
+        namespace="${MAVROS_NAMESPACE_PREFIX}${i}"
+    fi
     bind_port=$((FCU_BIND_BASE_PORT + px4_instance))
     remote_port=$((PX4_REMOTE_BASE_PORT + px4_instance))
     system_id=$((px4_instance + 1))
     fcu_url="udp://:${bind_port}@${FCU_REMOTE_HOST}:${remote_port}"
     log_path="/tmp/mavros_drone${i}_px4.log"
 
-    echo "Starting MAVROS for Drone${i} (${namespace}, PX4 instance ${px4_instance}, ${fcu_url}, system_id=${system_id})..."
+    echo "Starting MAVROS for drone$((i + 1)) (${namespace}, PX4 instance ${px4_instance}, ${fcu_url}, system_id=${system_id})..."
     ros2 launch mavros px4.launch \
         fcu_url:="$fcu_url" \
         tgt_system:="$system_id" \

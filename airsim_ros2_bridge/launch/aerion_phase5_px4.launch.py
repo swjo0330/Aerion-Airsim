@@ -1,4 +1,4 @@
-"""AERION Phase 5 — PX4 SITL 5대 + MAVROS 5대 + bridge 5대 + formation 통합 launch.
+"""AERION Phase 5 — PX4 SITL 3대 + MAVROS 3대 + bridge 3대 + formation 통합 launch.
 
 전제:
   - Phase 4 (SimpleFlight 자체 포메이션) PASS
@@ -8,7 +8,7 @@
 흐름:
   1. (외부) UE Play + px4_5drones_phase5.json deploy
   2. (외부) PX4 SITL 5개 인스턴스 기동 (~/airsim/PX4-Autopilot/build/px4_sitl_default/bin/px4 -i {0..4})
-  3. (본 launch) MAVROS 5대 + bridge×5 + formation_node + leader + tf_publisher 일괄 기동
+  3. (본 launch) MAVROS 3대 + bridge×3 + formation_node + leader + tf_publisher 일괄 기동
   4. (외부) ros2 service call /drone{N}/mavros/cmd/arming + set_mode OFFBOARD (또는 별도 mavros_arm_all.py 헬퍼)
   5. (외부) /aerion/formation/pattern 명령
 
@@ -29,16 +29,16 @@ from launch_ros.actions import Node
 
 def _build_bridges_and_mavros(context, *args, **kwargs):
     drone_count = int(LaunchConfiguration('drone_count').perform(context))
-    if not (1 <= drone_count <= 5):
-        raise ValueError(f'drone_count 1~5만 지원: {drone_count}')
+    if not (1 <= drone_count <= 3):
+        raise ValueError(f'drone_count 1~3만 지원: {drone_count}')
 
     nodes = []
-    # PX4 SITL fcu_url 매핑 (px4_5drones_phase5.json 기준):
-    # drone1: udp://:14555@127.0.0.1:14540 ... drone5: udp://:14559@127.0.0.1:14544
     for n in range(1, drone_count + 1):
         vehicle = f'drone{n}'
-        fcu_recv_port = 14554 + n     # 14555..14559
-        fcu_send_port = 14539 + n     # 14540..14544
+        px4_instance = n - 1
+        fcu_recv_port = 14540 + px4_instance
+        fcu_send_port = 14580 + px4_instance
+        enable_camera = n == 1
 
         # MAVROS (per drone)
         nodes.append(Node(
@@ -50,7 +50,7 @@ def _build_bridges_and_mavros(context, *args, **kwargs):
             parameters=[{
                 'fcu_url': f'udp://:{fcu_recv_port}@127.0.0.1:{fcu_send_port}',
                 'gcs_url': '',
-                'target_system_id': n,
+                'target_system_id': px4_instance + 1,
                 'target_component_id': 1,
                 'system_id': 255,
                 'component_id': 240,
@@ -68,13 +68,13 @@ def _build_bridges_and_mavros(context, *args, **kwargs):
                 'vehicle_name': vehicle,
                 'airsim_ip': '127.0.0.1',
                 'airsim_port': 41451,
-                'enable_camera': True,
+                'enable_camera': enable_camera,
                 'enable_range': True,
                 'camera_fps': 10.0,
                 'range_publish_rate': 20.0,
                 'enable_ardu_compat': False,
                 'control_backend': 'px4_mavros',
-                'mavros_instance_namespace': f'mavros{n - 1}',  # mavros0..mavros4
+                'mavros_instance_namespace': f'{vehicle}/mavros',
             }],
         ))
     return nodes
@@ -82,7 +82,7 @@ def _build_bridges_and_mavros(context, *args, **kwargs):
 
 def generate_launch_description():
     args = [
-        DeclareLaunchArgument('drone_count', default_value='5'),
+        DeclareLaunchArgument('drone_count', default_value='3'),
         DeclareLaunchArgument('default_pattern', default_value='LINE'),
         DeclareLaunchArgument('default_altitude', default_value='5.0'),
         DeclareLaunchArgument('obstacle_stop_dist', default_value='1.0'),

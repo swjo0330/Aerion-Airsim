@@ -49,6 +49,8 @@ class DroneController:
         control_backend: str = 'airsim_direct',
         velocity_command_duration: float = 0.2,
         kinematic_z_ned: float = -1.0,
+        forward_ap_cmd_vel_to_mavros: bool = False,
+        local_motion_from_mavros: bool = False,
         home_latitude: float = 37.5665,
         home_longitude: float = 126.9780,
         home_altitude: float = 0.0,
@@ -57,11 +59,13 @@ class DroneController:
         self._node = node
         self._client = client
         self._vehicle_name = vehicle_name
-        self._enable_ardu_compat = enable_ardu_compat
         self._velocity_control_mode = velocity_control_mode
         self._control_backend = control_backend if control_backend in ('airsim_direct', 'px4_mavros') else 'airsim_direct'
+        self._enable_ardu_compat = enable_ardu_compat and self._control_backend == 'airsim_direct'
         self._velocity_command_duration = velocity_command_duration
         self._kinematic_z_ned = kinematic_z_ned
+        self._forward_ap_cmd_vel_to_mavros = forward_ap_cmd_vel_to_mavros
+        self._local_motion_from_mavros = local_motion_from_mavros
         self._home_latitude = home_latitude
         self._home_longitude = home_longitude
         self._home_altitude = home_altitude
@@ -84,7 +88,8 @@ class DroneController:
         topic_prefix = f'/{vehicle_name}'
         mavros_prefix = f'{topic_prefix}/mavros'
 
-        self._enable_vehicle_control()
+        if self._control_backend == 'airsim_direct' or self._local_motion_from_mavros:
+            self._enable_vehicle_control()
 
         self._vel_sub = node.create_subscription(
             Twist,
@@ -198,22 +203,30 @@ class DroneController:
         )
         self._state_pub = (
             node.create_publisher(State, f'{mavros_prefix}/state', 10)
-            if State is not None
+            if State is not None and self._control_backend == 'airsim_direct'
             else None
         )
         self._extended_state_pub = (
             node.create_publisher(ExtendedState, f'{mavros_prefix}/extended_state', 10)
-            if ExtendedState is not None
+            if ExtendedState is not None and self._control_backend == 'airsim_direct'
             else None
         )
-        self._mavros_services = self._create_mavros_services(mavros_prefix)
+        self._mavros_services = (
+            self._create_mavros_services(mavros_prefix)
+            if self._control_backend == 'airsim_direct'
+            else None
+        )
         self._px4_mavros_setpoint_pub = (
             node.create_publisher(
                 Twist,
                 f'/{mavros_instance_namespace}/setpoint_velocity/cmd_vel_unstamped',
                 10,
             )
-            if self._control_backend == 'px4_mavros' and mavros_instance_namespace
+            if (
+                self._control_backend == 'px4_mavros'
+                and self._forward_ap_cmd_vel_to_mavros
+                and mavros_instance_namespace
+            )
             else None
         )
 
@@ -237,8 +250,16 @@ class DroneController:
                 self._mavros_cmd_pos_callback,
                 10,
             )
-            self._mavros_instance_pubs = self._create_mavros_namespace_publishers(mavros_instance_prefix)
-            self._mavros_instance_services = self._create_mavros_services(mavros_instance_prefix)
+            self._mavros_instance_pubs = (
+                self._create_mavros_namespace_publishers(mavros_instance_prefix)
+                if self._control_backend == 'airsim_direct'
+                else None
+            )
+            self._mavros_instance_services = (
+                self._create_mavros_services(mavros_instance_prefix)
+                if self._control_backend == 'airsim_direct'
+                else None
+            )
         else:
             self._mavros_instance_vel_sub = None
             self._mavros_instance_vel_stamped_sub = None
@@ -246,7 +267,7 @@ class DroneController:
             self._mavros_instance_pubs = None
             self._mavros_instance_services = None
 
-        if enable_ardu_compat:
+        if enable_ardu_compat and self._control_backend == 'airsim_direct':
             self._ap_cmd_vel_sub = node.create_subscription(
                 Twist,
                 '/ap/cmd_vel',
@@ -416,7 +437,11 @@ class DroneController:
                 if ExtendedState is not None
                 else None
             )
-            self._mavros_alias_services = self._create_mavros_services('/mavros')
+            self._mavros_alias_services = (
+                self._create_mavros_services('/mavros')
+                if self._control_backend == 'airsim_direct'
+                else None
+            )
         else:
             self._ap_cmd_vel_sub = None
             self._mavros_alias_vel_sub = None
@@ -465,7 +490,7 @@ class DroneController:
         node.get_logger().info(f'[{vehicle_name}] Control backend={self._control_backend}')
         if velocity_control_mode == 'kinematic':
             node.get_logger().info(f'[{vehicle_name}] Kinematic altitude locked at NED z={kinematic_z_ned:.2f}')
-        if enable_ardu_compat:
+        if self._enable_ardu_compat:
             node.get_logger().info(
                 f'[{vehicle_name}] ArduPilot compatibility enabled on /ap/* and /mavros/* aliases'
             )
@@ -630,12 +655,19 @@ class DroneController:
         Twist.linear.x/y/z -> vx, vy, vz in NED frame (m/s).
         Duration is fixed at 0.1s for continuous streaming.
         """
-        self._send_velocity_ned(msg.linear.x, msg.linear.y, msg.linear.z, source='cmd_vel')
+        self._send_velocity_ned(
+            msg.linear.x,
+            msg.linear.y,
+            msg.linear.z,
+            source='cmd_vel',
+            allow_local_motion=self._control_backend == 'px4_mavros' and self._local_motion_from_mavros,
+        )
 
     def _ap_cmd_vel_callback(self, msg: Twist):
-        if self._control_backend == 'px4_mavros' and self._px4_mavros_setpoint_pub is not None:
+        if self._control_backend == 'px4_mavros':
             self._last_velocity_enu = (msg.linear.x, msg.linear.y, msg.linear.z)
-            self._px4_mavros_setpoint_pub.publish(msg)
+            if self._forward_ap_cmd_vel_to_mavros and self._px4_mavros_setpoint_pub is not None:
+                self._px4_mavros_setpoint_pub.publish(msg)
             ned_x, ned_y, ned_z = self._enu_to_ned(msg.linear.x, msg.linear.y, msg.linear.z)
             self._send_velocity_ned(
                 ned_x,
@@ -676,11 +708,21 @@ class DroneController:
 
     def _mavros_cmd_vel_stamped_callback(self, msg: TwistStamped):
         """Forward MAVROS velocity setpoint from ROS ENU to AirSim NED."""
-        self._send_velocity_enu(msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z)
+        self._send_velocity_enu(
+            msg.twist.linear.x,
+            msg.twist.linear.y,
+            msg.twist.linear.z,
+            allow_local_motion=self._control_backend == 'px4_mavros' and self._local_motion_from_mavros,
+        )
 
     def _mavros_cmd_vel_unstamped_callback(self, msg: Twist):
         """Forward MAVROS unstamped velocity setpoint from ROS ENU to AirSim NED."""
-        self._send_velocity_enu(msg.linear.x, msg.linear.y, msg.linear.z)
+        self._send_velocity_enu(
+            msg.linear.x,
+            msg.linear.y,
+            msg.linear.z,
+            allow_local_motion=self._control_backend == 'px4_mavros' and self._local_motion_from_mavros,
+        )
 
     def _mavros_cmd_pos_callback(self, msg: PoseStamped):
         """Forward MAVROS local position setpoint from ROS ENU to AirSim NED.
@@ -715,10 +757,23 @@ class DroneController:
         except Exception as e:
             self._node.get_logger().warn(f'[{self._vehicle_name}] mavros setpoint_position error: {e}')
 
-    def _send_velocity_enu(self, enu_x: float, enu_y: float, enu_z: float):
+    def _send_velocity_enu(
+        self,
+        enu_x: float,
+        enu_y: float,
+        enu_z: float,
+        allow_local_motion: bool = False,
+    ):
         self._last_velocity_enu = (enu_x, enu_y, enu_z)
         ned_x, ned_y, ned_z = self._enu_to_ned(enu_x, enu_y, enu_z)
-        self._send_velocity_ned(ned_x, ned_y, ned_z, source='setpoint_velocity', enu=(enu_x, enu_y, enu_z))
+        self._send_velocity_ned(
+            ned_x,
+            ned_y,
+            ned_z,
+            source='setpoint_velocity',
+            enu=(enu_x, enu_y, enu_z),
+            allow_local_motion=allow_local_motion,
+        )
 
     def _send_velocity_ned(
         self,
@@ -906,13 +961,17 @@ class DroneController:
         return response
 
     def _apply_kinematic_velocity(self, ned_x: float, ned_y: float, ned_z: float):
-        position, orientation_xyzw, _ = self._get_vehicle_kinematics()
         command_norm = math.sqrt(ned_x * ned_x + ned_y * ned_y + ned_z * ned_z)
+        if command_norm <= 1e-3:
+            self._kinematic_noop_count = 0
+            return
+
+        position, orientation_xyzw, _ = self._get_vehicle_kinematics()
         duration = self._velocity_command_duration
         next_position = [
             position[0] + ned_x * duration,
             position[1] + ned_y * duration,
-            self._kinematic_z_ned if ned_z == 0.0 else position[2] + ned_z * duration,
+            position[2] if abs(ned_z) <= 1e-6 else position[2] + ned_z * duration,
         ]
         orientation_wxyz = [
             orientation_xyzw[3],
@@ -977,7 +1036,6 @@ class DroneController:
             msg.pose.orientation.z = -orientation[2]
             msg.pose.orientation.w = orientation[3]
 
-            self._local_pose_pub.publish(msg)
             odom_msg = self._build_odometry_msg(msg, linear_velocity_enu)
             pose_cov_msg = self._build_pose_cov_msg(msg)
             velocity_local_msg = self._build_twist_msg(msg, linear_velocity_enu, 'map')
@@ -1002,43 +1060,45 @@ class DroneController:
             compass_hdg_msg = Float64()
             compass_hdg_msg.data = self._yaw_degrees_from_quaternion(msg.pose.orientation)
 
-            self._local_odom_pub.publish(odom_msg)
-            self._local_pose_cov_pub.publish(pose_cov_msg)
-            self._velocity_local_pub.publish(velocity_local_msg)
-            self._velocity_local_cov_pub.publish(velocity_local_cov_msg)
-            self._velocity_body_pub.publish(velocity_body_msg)
-            self._velocity_body_cov_pub.publish(velocity_body_cov_msg)
-            self._global_fix_pub.publish(navsat_msg)
-            self._global_local_pub.publish(odom_msg)
-            self._global_raw_fix_pub.publish(navsat_msg)
-            self._global_rel_alt_pub.publish(rel_alt_msg)
-            self._global_compass_hdg_pub.publish(compass_hdg_msg)
-            self._imu_pub.publish(imu_msg)
-            self._imu_raw_pub.publish(imu_msg)
-            self._battery_pub.publish(battery_msg)
-            if self._state_pub is not None and state_msg is not None:
-                self._state_pub.publish(state_msg)
-            if self._extended_state_pub is not None and extended_state_msg is not None:
-                self._extended_state_pub.publish(extended_state_msg)
+            if self._control_backend == 'airsim_direct':
+                self._local_pose_pub.publish(msg)
+                self._local_odom_pub.publish(odom_msg)
+                self._local_pose_cov_pub.publish(pose_cov_msg)
+                self._velocity_local_pub.publish(velocity_local_msg)
+                self._velocity_local_cov_pub.publish(velocity_local_cov_msg)
+                self._velocity_body_pub.publish(velocity_body_msg)
+                self._velocity_body_cov_pub.publish(velocity_body_cov_msg)
+                self._global_fix_pub.publish(navsat_msg)
+                self._global_local_pub.publish(odom_msg)
+                self._global_raw_fix_pub.publish(navsat_msg)
+                self._global_rel_alt_pub.publish(rel_alt_msg)
+                self._global_compass_hdg_pub.publish(compass_hdg_msg)
+                self._imu_pub.publish(imu_msg)
+                self._imu_raw_pub.publish(imu_msg)
+                self._battery_pub.publish(battery_msg)
+                if self._state_pub is not None and state_msg is not None:
+                    self._state_pub.publish(state_msg)
+                if self._extended_state_pub is not None and extended_state_msg is not None:
+                    self._extended_state_pub.publish(extended_state_msg)
 
-            if self._mavros_instance_pubs is not None:
-                self._publish_mavros_namespace(
-                    self._mavros_instance_pubs,
-                    msg,
-                    odom_msg,
-                    pose_cov_msg,
-                    velocity_local_msg,
-                    velocity_local_cov_msg,
-                    velocity_body_msg,
-                    velocity_body_cov_msg,
-                    navsat_msg,
-                    rel_alt_msg,
-                    compass_hdg_msg,
-                    imu_msg,
-                    battery_msg,
-                    state_msg,
-                    extended_state_msg,
-                )
+                if self._mavros_instance_pubs is not None:
+                    self._publish_mavros_namespace(
+                        self._mavros_instance_pubs,
+                        msg,
+                        odom_msg,
+                        pose_cov_msg,
+                        velocity_local_msg,
+                        velocity_local_cov_msg,
+                        velocity_body_msg,
+                        velocity_body_cov_msg,
+                        navsat_msg,
+                        rel_alt_msg,
+                        compass_hdg_msg,
+                        imu_msg,
+                        battery_msg,
+                        state_msg,
+                        extended_state_msg,
+                    )
 
             if self._enable_ardu_compat:
                 self._mavros_alias_pose_pub.publish(msg)

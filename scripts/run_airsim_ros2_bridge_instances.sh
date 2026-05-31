@@ -3,13 +3,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DRONE_COUNT="${DRONE_COUNT:-2}"
+DRONE_COUNT="${DRONE_COUNT:-3}"
 VEHICLES="${VEHICLES:-}"
+MASTER_VEHICLE="${MASTER_VEHICLE:-drone1}"
 PIDS=""
 
 if [ -z "$VEHICLES" ]; then
-    for ((i = 0; i < DRONE_COUNT; i++)); do
-        VEHICLES="${VEHICLES} Drone${i}"
+    for ((i = 1; i <= DRONE_COUNT; i++)); do
+        VEHICLES="${VEHICLES} drone${i}"
     done
     VEHICLES="${VEHICLES# }"
 fi
@@ -27,11 +28,21 @@ index=0
 for vehicle_name in $VEHICLES; do
     vehicle_index="${vehicle_name##*[!0-9]}"
     vehicle_index="${vehicle_index:-$index}"
-    echo "Starting bridge instance for ${vehicle_name} on /mavros${vehicle_index}..."
+    if [[ "$vehicle_name" =~ ^drone([0-9]+)$ ]]; then
+        vehicle_index=$((${BASH_REMATCH[1]} - 1))
+    fi
+    mavros_namespace="${MAVROS_NAMESPACE:-$vehicle_name/mavros}"
+    enable_camera=false
+    if [ "$vehicle_name" = "$MASTER_VEHICLE" ]; then
+        enable_camera=true
+    fi
+    echo "Starting bridge instance for ${vehicle_name} on /${mavros_namespace} (camera=${enable_camera})..."
     VEHICLE_NAME="$vehicle_name" \
     VEHICLE_INDEX="$vehicle_index" \
-    MAVROS_NAMESPACE="mavros${vehicle_index}" \
+    MAVROS_NAMESPACE="$mavros_namespace" \
     NODE_NAME="airsim_bridge_${vehicle_name}" \
+    ENABLE_CAMERA="$enable_camera" \
+    ENABLE_RANGE="${ENABLE_RANGE:-true}" \
     "$SCRIPT_DIR/run_airsim_ros2_bridge.sh" &
     PIDS="$PIDS $!"
     index=$((index + 1))

@@ -29,6 +29,8 @@ setup(
             'aerion_tf = airsim_ros2_bridge.tf_publisher:main',
             # AERION Phase 4-Δ: 포메이션 데모 CLI (--demo morphing-cycle).
             'aerion_formation_demo = airsim_ros2_bridge.formation_demo:main',
+            # AERION PX4/MAVROS: keyboard velocity teleop for lag validation.
+            'aerion_manual_mavros_control = airsim_ros2_bridge.manual_mavros_control:main',
         ],
     },
 )

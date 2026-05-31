@@ -12,6 +12,7 @@
 #   bash scripts/run_ue_blocksv2.sh
 #   bash scripts/run_ue_blocksv2.sh /path/to/integrated.uproject
 #   UE_PROJECT=/path/to/other.uproject UE_BIN=... bash scripts/run_ue_blocksv2.sh
+#   UE_MAP=/Game/FlyingCPP/Maps/FlyingExampleMapV2 bash scripts/run_ue_blocksv2.sh
 #
 # Note: 본 스크립트는 UE Editor 만 띄움. ▶ Play 는 사용자가 GUI 에서 직접 누름.
 #       (Colosseum AirSim plugin 은 Editor PIE 모드에서만 안정 동작 — standalone
@@ -25,6 +26,9 @@ set -euo pipefail
 UE_BIN="${UE_BIN:-$HOME/airsim/unreal-engine/Engine/Binaries/Linux/UnrealEditor}"
 UE_PROJECT_DEFAULT="$HOME/airsim/Colosseum/Unreal/Environments/BlocksV2/BlocksV2.uproject"
 UE_PROJECT="${1:-${UE_PROJECT:-$UE_PROJECT_DEFAULT}}"
+UE_PROJECT="$(readlink -f "$UE_PROJECT")"
+UE_PROJECT_DIR="$(dirname "$UE_PROJECT")"
+UE_MAP="${UE_MAP:-}"
 DDC_PATH="${DDC_PATH:-$HOME/workspace/cache/ue_ddc}"
 LOG_DIR="${LOG_DIR:-$HOME/workspace/logs/ue}"
 
@@ -49,6 +53,10 @@ echo "============================================"
 echo "  UE Editor 실행"
 echo "  Binary:    $UE_BIN"
 echo "  Project:   $UE_PROJECT"
+echo "  Workdir:   $UE_PROJECT_DIR"
+if [ -n "$UE_MAP" ]; then
+    echo "  Map:       $UE_MAP"
+fi
 echo "  DDC cache: $DDC_PATH"
 echo "  Log:       $LOG"
 echo "============================================"
@@ -62,8 +70,14 @@ echo ""
 # -nullrhi/-game 같은 headless 옵션은 PIE 와 호환 안 됨 → editor GUI 모드.
 export UE_SHAREDDATACACHE_PATH="$DDC_PATH"
 
-nohup "$UE_BIN" "$UE_PROJECT" -log \
-    > "$LOG" 2>&1 &
+cd "$UE_PROJECT_DIR"
+if [ -n "$UE_MAP" ]; then
+    setsid "$UE_BIN" "$UE_PROJECT" "$UE_MAP" -log \
+        > "$LOG" 2>&1 < /dev/null &
+else
+    setsid "$UE_BIN" "$UE_PROJECT" -log \
+        > "$LOG" 2>&1 < /dev/null &
+fi
 UE_PID=$!
 disown
 

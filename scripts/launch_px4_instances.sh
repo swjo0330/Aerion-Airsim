@@ -57,13 +57,24 @@ for ((i = 0; i < DRONE_COUNT; i++)); do
     mkdir -p "$instance_cwd"
 
     echo "Starting Drone${i} with PX4 SITL instance ${px4_instance} (SysID=${system_id}, TCP:${tcp_port}, sim host:${PX4_SIM_HOSTNAME}, cwd:${instance_cwd})..."
-    (cd "$instance_cwd" && \
-        PX4_SIM_HOSTNAME="$PX4_SIM_HOSTNAME" PX4_SIM_MODEL="$PX4_MODEL" \
-        nohup "$PX4_BIN" -i "$px4_instance" -d "$PX4_BUILD_DIR/etc" \
-        >"$log_path" 2>&1 &
-        echo $! > "$instance_cwd/px4.pid"
-    )
-    pid=$(cat "$instance_cwd/px4.pid")
+    if [ "$BACKGROUND_MODE" = "true" ]; then
+        (
+            cd "$instance_cwd"
+            PX4_SIM_HOSTNAME="$PX4_SIM_HOSTNAME" PX4_SIM_MODEL="$PX4_MODEL" \
+                nohup "$PX4_BIN" -i "$px4_instance" -d "$PX4_BUILD_DIR/etc" \
+                >"$log_path" 2>&1 &
+            echo $! > "$instance_cwd/px4.pid"
+        )
+        pid=$(cat "$instance_cwd/px4.pid")
+    else
+        (
+            cd "$instance_cwd"
+            exec env PX4_SIM_HOSTNAME="$PX4_SIM_HOSTNAME" PX4_SIM_MODEL="$PX4_MODEL" \
+                "$PX4_BIN" -i "$px4_instance" -d "$PX4_BUILD_DIR/etc"
+        ) >"$log_path" 2>&1 &
+        pid=$!
+        echo "$pid" > "$instance_cwd/px4.pid"
+    fi
     PIDS="$PIDS $pid"
     echo "  PID: $pid, log: $log_path"
     echo "  MAVROS FCU: udp://:${mavros_bind_port}@127.0.0.1:${px4_remote_port}"

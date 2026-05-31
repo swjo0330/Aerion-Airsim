@@ -90,6 +90,8 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('control_backend', 'px4_mavros')
         self.declare_parameter('velocity_command_duration', 0.2)
         self.declare_parameter('kinematic_z_ned', -1.0)
+        self.declare_parameter('forward_ap_cmd_vel_to_mavros', False)
+        self.declare_parameter('local_motion_from_mavros', False)
         self.declare_parameter('airsim_ip', '127.0.0.1')
         self.declare_parameter('airsim_port', 41451)
         self.declare_parameter('airsim_timeout_sec', 2.0)
@@ -118,6 +120,12 @@ class AirSimBridgeNode(Node):
             self.get_parameter('velocity_command_duration').get_parameter_value().double_value
         )
         kinematic_z_ned = self.get_parameter('kinematic_z_ned').get_parameter_value().double_value
+        forward_ap_cmd_vel_to_mavros = (
+            self.get_parameter('forward_ap_cmd_vel_to_mavros').get_parameter_value().bool_value
+        )
+        local_motion_from_mavros = (
+            self.get_parameter('local_motion_from_mavros').get_parameter_value().bool_value
+        )
         airsim_ip = self.get_parameter('airsim_ip').get_parameter_value().string_value
         airsim_port = self.get_parameter('airsim_port').get_parameter_value().integer_value
         airsim_timeout_sec = self.get_parameter('airsim_timeout_sec').get_parameter_value().double_value
@@ -195,6 +203,8 @@ class AirSimBridgeNode(Node):
                 control_backend=control_backend,
                 velocity_command_duration=velocity_command_duration,
                 kinematic_z_ned=kinematic_z_ned,
+                forward_ap_cmd_vel_to_mavros=forward_ap_cmd_vel_to_mavros,
+                local_motion_from_mavros=local_motion_from_mavros,
                 home_latitude=home_latitude,
                 home_longitude=home_longitude,
                 home_altitude=home_altitude,

@@ -34,6 +34,45 @@
       "TcpPort": 4560,
       "LocalHostIp": "127.0.0.1",
       "Sensors": {
+        "Distance_Front": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0.3,
+          "Y": 0,
+          "Z": 0,
+          "Yaw": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 40,
+          "DrawDebugPoints": false
+        },
+        "Distance_Left": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": -0.3,
+          "Z": 0,
+          "Yaw": -90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
+        "Distance_Right": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": 0.3,
+          "Z": 0,
+          "Yaw": 90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
         "Imu": {
           "SensorType": 2,
           "Enabled": true
@@ -97,6 +136,45 @@
       "TcpPort": 4561,
       "LocalHostIp": "127.0.0.1",
       "Sensors": {
+        "Distance_Front": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0.3,
+          "Y": 0,
+          "Z": 0,
+          "Yaw": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 40,
+          "DrawDebugPoints": false
+        },
+        "Distance_Left": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": -0.3,
+          "Z": 0,
+          "Yaw": -90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
+        "Distance_Right": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": 0.3,
+          "Z": 0,
+          "Yaw": 90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
         "Imu": {
           "SensorType": 2,
           "Enabled": true
@@ -126,21 +204,6 @@
         "EKF2_MAG_TYPE": 1,
         "COM_ARM_EKF_YAW": 0,
         "COM_PREARM_MODE": 0
-      },
-      "Cameras": {
-        "front_center": {
-          "CaptureSettings": [
-            {
-              "ImageType": 0,
-              "Width": 320,
-              "Height": 240,
-              "FOV_Degrees": 90
-            }
-          ],
-          "X": 0.25,
-          "Y": 0,
-          "Z": -0.18
-        }
       },
       "ControlIp": "127.0.0.1",
       "ControlPortLocal": 15041,
@@ -158,6 +221,45 @@
       "TcpPort": 4562,
       "LocalHostIp": "127.0.0.1",
       "Sensors": {
+        "Distance_Front": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0.3,
+          "Y": 0,
+          "Z": 0,
+          "Yaw": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 40,
+          "DrawDebugPoints": false
+        },
+        "Distance_Left": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": -0.3,
+          "Z": 0,
+          "Yaw": -90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
+        "Distance_Right": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": 0.3,
+          "Z": 0,
+          "Yaw": 90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
         "Imu": {
           "SensorType": 2,
           "Enabled": true
@@ -187,21 +289,6 @@
         "EKF2_MAG_TYPE": 1,
         "COM_ARM_EKF_YAW": 0,
         "COM_PREARM_MODE": 0
-      },
-      "Cameras": {
-        "front_center": {
-          "CaptureSettings": [
-            {
-              "ImageType": 0,
-              "Width": 320,
-              "Height": 240,
-              "FOV_Degrees": 90
-            }
-          ],
-          "X": 0.25,
-          "Y": 0,
-          "Z": -0.18
-        }
       },
       "ControlIp": "127.0.0.1",
       "ControlPortLocal": 15042,
