@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/autocapture-reminder.sh\"",
+            "asyncRewake": true,
+            "rewakeMessage": "자율 지식 축적 규칙 — Stop 점검:",
+            "rewakeSummary": "자율기록 점검",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

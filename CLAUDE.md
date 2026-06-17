@@ -162,3 +162,45 @@
 - https://github.com/CodexLabsLLC/Colosseum/blob/main/PythonClient/multirotor/hello_drone.py
 - https://github.com/CodexLabsLLC/Colosseum/blob/main/PythonClient/computer_vision/cv_mode.py
 - https://github.com/CodexLabsLLC/Colosseum/tree/main/PythonClient/multirotors
+
+<!-- FABLIZE:BEGIN — run Opus like Fable (always-on router). Verified procedures only. Install/update: fablize setup.sh -->
+## Operating mode (always on — auto-route by task signal)
+
+Apply what the task signals; with no signal, baseline only. Read each pack only when needed. Routing: smallest matching discipline only, overlap only when genuinely multi-category, mimic observable behavior only.
+
+- **[always]** Lead with the outcome · stay within the requested scope (no incidental refactors) · ground completion claims in this session's tool results · confirm before destructive or hard-to-reverse actions.
+- **[2+ sequential stories]** Run `python3 /home/clrobur/.claude/plugins/cache/fablize/fablize/2.0.0/scripts/goals.py`: create → next → checkpoint (with evidence) → final verification gate (no completion without `--verify-cmd` and `--verify-evidence`). Run from the repo root; state in `./.fablize/` (resume with `status`). Skip for single-step tasks.
+- **[debugging / test failure / unknown cause / review]** Follow `/home/clrobur/.claude/plugins/cache/fablize/fablize/2.0.0/packs/investigation-protocol.txt`: reproduce first → 3+ competing hypotheses → evidence per hypothesis → full causal chain → verify before/after → report rejected hypotheses.
+- **[render/executable artifact: HTML, SVG, game, UI, chart]** Follow `/home/clrobur/.claude/plugins/cache/fablize/fablize/2.0.0/packs/verification-grounding-pack.txt` grounding loop: run it in the real renderer → observe the output → fix what you see → re-run. A static check is not observation.
+- **[hard or ambiguous task]** Adaptive thinking scales with difficulty automatically. To go higher, recommend `/effort xhigh` to the user. Depth (capability) cannot be raised: if stuck 2+ times or out-of-spec discovery is needed, report the limit honestly and escalate.
+<!-- FABLIZE:END -->
+
+<!-- AUTOCAPTURE:BEGIN — 자율 지식 축적 규칙 (페이블식). fablize 블록 밖이므로 setup.sh가 건드리지 않음. 손으로 편집 가능 -->
+## 자율 지식 축적 규칙 (always on — 실시간·무인)
+
+작업·대화 도중 **지속 가치가 있는 지식이 발견되면, 묻지 말고 실시간으로** 알맞은 저장소에 기록한다. 사용자가 신경 쓰지 않아도 지식이 자동 축적·동기화되게 하는 것이 목적. (memoir Stop 훅의 자동 캡처와 *별개로* 작동하는 행동 규율)
+
+**1) 포착 신호 (이게 보이면 캡처 검토):**
+- **결정** — "X로 간다, 이유는 Y" (설계·기술 선택)
+- **제약/관례 발견** — "반드시 …", "…하면 안 됨", 포트/버전/경로 규칙
+- **교훈/함정** — 무언가 깨졌다가 원인+해결을 찾았을 때
+- **사용자 교정/피드백** — 내 방식에 대한 지적·승인
+- **사용자 선호/금지** — 개인 선호·정체성 (⚠️ 민감)
+- **마일스톤/상태 변화** — 장기 작업의 단계 전환·핸드오프 시점
+
+**2) 라우팅 (어디에 쓰나):**
+| 성격 | 위치 |
+|---|---|
+| 이 작업 한정·휘발성 | **기록 안 함** (노이즈 방지) |
+| 세션 간 사실·선호 | 파일메모리 카드(`memory/<slug>.md`) + `MEMORY.md` 인덱스 1줄 |
+| 구조화 기술사실 | memoir (Stop 자동; 즉시 필요하면 `/memoir:remember`) |
+| 모두가 따를 프로젝트 룰 | **이 CLAUDE.md** (해당 섹션에 추가) |
+| 서사형 진행·하우투·핸드오프 | `docs/` (예: `docs/fable/`, `docs/airsim/`) |
+
+**3) 자율성 정책 (공격적 실시간):**
+- **비민감**(결정·교훈·제약·상태·교정) → **즉시 무인 기록**, 응답에 `📝 기록: …` 한 줄만 남김.
+- **민감**(개인 선호·금지·정체성) → **먼저 통지 → 승인 후** 저장.
+- **중복 금지**: 저장 전 기존 항목 확인, 새로 만들기보다 **갱신** 우선. 틀린 기억은 삭제.
+- **노이즈 금지**: 레포/깃/CLAUDE.md가 이미 담은 내용은 저장하지 않는다(무엇이 *비자명*했는지만 남김).
+- **링크**: 파일메모리 카드끼리 `[[slug]]`로 연결.
+<!-- AUTOCAPTURE:END -->
