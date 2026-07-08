@@ -1,0 +1,126 @@
+{
+  "schema": "aerion_topview_control_points_v1",
+  "image": "town10_live_topdown_airsim_rgb.png",
+  "heightmap_display_transform": {
+    "flip_x": false,
+    "flip_y": false,
+    "rotate_180": true
+  },
+  "control_points": [
+    {
+      "name": "cp_02",
+      "pixel": [
+        1117.9861314837235,
+        1057.1378736336608
+      ],
+      "map": [
+        75.18203177440301,
+        -31.372887310980616
+      ]
+    },
+    {
+      "name": "cp_03",
+      "pixel": [
+        1259.6216089042423,
+        1557.8047298976605
+      ],
+      "map": [
+        10.782000104208976,
+        -11.514177397897981
+      ]
+    },
+    {
+      "name": "cp_04",
+      "pixel": [
+        418.41560786778115,
+        1736.4304735307337
+      ],
+      "map": [
+        -9.099251338940633,
+        -118.04704387240099
+      ]
+    },
+    {
+      "name": "cp_05",
+      "pixel": [
+        705.2554051302232,
+        2670.5429966499187
+      ],
+      "map": [
+        -126.38607835912111,
+        -82.69053772578837
+      ]
+    },
+    {
+      "name": "cp_06",
+      "pixel": [
+        1713.5407530830498,
+        2356.795278961032
+      ],
+      "map": [
+        -89.57393354847719,
+        41.45318086601878
+      ]
+    },
+    {
+      "name": "cp_07",
+      "pixel": [
+        2671.8464393916624,
+        2210.1080343272665
+      ],
+      "map": [
+        -70.49518209774229,
+        161.46394393202397
+      ]
+    },
+    {
+      "name": "cp_08",
+      "pixel": [
+        2132.256926581375,
+        1902.0681988102563
+      ],
+      "map": [
+        -31.840609194779233,
+        96.74757715712488
+      ]
+    },
+    {
+      "name": "cp_09",
+      "pixel": [
+        2194.6206348219916,
+        1055.0785127661484
+      ],
+      "map": [
+        75.50779142798643,
+        103.33442994703299
+      ]
+    },
+    {
+      "name": "cp_10",
+      "pixel": [
+        2601.7170636149062,
+        774.1020684984003
+      ],
+      "map": [
+        111.70335931237565,
+        153.47310801926585
+      ]
+    }
+  ],
+  "name": "topview_control_points_rotate180_normalized",
+  "source_control_points": "/home/clrobur/Downloads/topview_control_points.json",
+  "normalization": {
+    "operation": "heightmap_rotate_180_inverse",
+    "bounds_source": "recordings/maps/heightmap.json",
+    "bounds": {
+      "west": -778.1871863331661,
+      "east": 469.3740809717736,
+      "south": -291.6968628570862,
+      "north": 433.1699883952493
+    },
+    "dropped_points": [
+      "cp_01"
+    ],
+    "reason": "cp_01 is an outlier after rotate-180 calibration; dropping it reduces RMS from ~13m to ~1.6m."
+  }
+}

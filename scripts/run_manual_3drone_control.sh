@@ -11,6 +11,16 @@ YAW_RATE="${YAW_RATE:-0.7}"
 HOLD_TIMEOUT="${HOLD_TIMEOUT:-0.25}"
 ARM_FLAG="${ARM_FLAG:-true}"
 FORCE_ARM_FLAG="${FORCE_ARM_FLAG:-true}"
+RECORDING_DIR="${RECORDING_DIR:-$ROS_WS/recordings}"
+ROUTE_FILE="${ROUTE_FILE:-}"
+GPS_TOPIC="${GPS_TOPIC:-}"
+FOLLOW_SPEED="${FOLLOW_SPEED:-1.5}"
+FOLLOW_VERTICAL_SPEED="${FOLLOW_VERTICAL_SPEED:-0.8}"
+WAYPOINT_RADIUS="${WAYPOINT_RADIUS:-1.5}"
+ALTITUDE_TOLERANCE="${ALTITUDE_TOLERANCE:-1.0}"
+CAMERA_TOPIC="${CAMERA_TOPIC:-/drone1/camera/image}"
+CAMERA_RECORD_FPS="${CAMERA_RECORD_FPS:-10.0}"
+CAMERA_RECORD_CODEC="${CAMERA_RECORD_CODEC:-FFV1}"
 
 if [ ! -f /opt/ros/humble/setup.bash ]; then
     echo "ERROR: ROS2 Humble setup not found at /opt/ros/humble/setup.bash" >&2
@@ -36,7 +46,23 @@ args=(
     --vertical-speed "$VERTICAL_SPEED"
     --yaw-rate "$YAW_RATE"
     --hold-timeout "$HOLD_TIMEOUT"
+    --recording-dir "$RECORDING_DIR"
+    --follow-speed "$FOLLOW_SPEED"
+    --follow-vertical-speed "$FOLLOW_VERTICAL_SPEED"
+    --waypoint-radius "$WAYPOINT_RADIUS"
+    --altitude-tolerance "$ALTITUDE_TOLERANCE"
+    --camera-topic "$CAMERA_TOPIC"
+    --camera-record-fps "$CAMERA_RECORD_FPS"
+    --camera-record-codec "$CAMERA_RECORD_CODEC"
 )
+
+if [ -n "$GPS_TOPIC" ]; then
+    args+=(--gps-topic "$GPS_TOPIC")
+fi
+
+if [ -n "$ROUTE_FILE" ]; then
+    args+=(--route-file "$ROUTE_FILE")
+fi
 
 if [ "$ARM_FLAG" = "true" ]; then
     args+=(--arm)

@@ -20,11 +20,15 @@
     초기 1회 호출해 즉시 경고. 런타임 중에도 5초 throttle로 경고만 (노드 죽이지 않음).
 """
 
+import struct
+
 import airsim
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
-from sensor_msgs.msg import Range
+from sensor_msgs.msg import LaserScan, PointCloud2, PointField, Range
 from std_msgs.msg import Header
+
+from airsim_ros2_bridge.topic_naming import sensor_topic_prefix
 
 
 # AERION 표준 거리센서 3개. settings.json의 Sensors 키와 정확히 일치해야 함.
@@ -62,26 +66,47 @@ class RangePublisher:
         distance_sensors=DEFAULT_DISTANCE_SENSORS,
         publish_rate: float = 20.0,
         field_of_view_rad: float = 0.035,
+        topic_namespace: str | None = None,
+        range_mode: str = 'range',
     ):
         self._node = node
         self._client = client
         self._vehicle_name = vehicle_name
         self._distance_sensors = tuple(distance_sensors)
         self._field_of_view = field_of_view_rad
-        self._last_error_ns = {name: 0 for name in self._distance_sensors}
+        # range_mode: 'range'(Range, 전/좌/우 레거시) | 'laserscan'(/range/front LaserScan 2D) |
+        #   'points'(/range/front/points PointCloud2 3D) | 'both'. 체화지능 detector는 'points'(3D, RANGE_3D) 사용.
+        self._mode = range_mode if range_mode in ('range', 'laserscan', 'points', 'both') else 'range'
+        self._scan_time = 1.0 / publish_rate
         self._callback_group = ReentrantCallbackGroup()
 
-        topic_prefix = f'/{vehicle_name}/range'
-        self._publishers = {}
+        topic_prefix = sensor_topic_prefix(vehicle_name, 'range', topic_namespace)
+        front_only = self._mode != 'range'
+        self._range_pubs = {}     # mode=='range'에서만: sensor → Range publisher
         self._frame_ids = {}
         topics_advertised = []
         for sensor_name in self._distance_sensors:
             suffix = TOPIC_SUFFIX.get(sensor_name, sensor_name.lower())
+            if front_only and suffix != 'front':
+                continue          # 체화지능 모드(laserscan/points/both): front만 폴링
             frame_suffix = FRAME_SUFFIX.get(sensor_name, f'range_{suffix}_link')
-            topic = f'{topic_prefix}/{suffix}'
-            self._publishers[sensor_name] = node.create_publisher(Range, topic, 10)
             self._frame_ids[sensor_name] = f'{vehicle_name}_{frame_suffix}'
-            topics_advertised.append(topic)
+            if self._mode == 'range':
+                topic = f'{topic_prefix}/{suffix}'
+                self._range_pubs[sensor_name] = node.create_publisher(Range, topic, 10)
+                topics_advertised.append(f'{topic}[Range]')
+
+        # front 전용 2D/3D 발행자
+        self._scan_pub = None
+        self._points_pub = None
+        if self._mode in ('laserscan', 'both'):
+            self._scan_pub = node.create_publisher(LaserScan, f'{topic_prefix}/front', 10)
+            topics_advertised.append(f'{topic_prefix}/front[LaserScan]')
+        if self._mode in ('points', 'both'):
+            self._points_pub = node.create_publisher(PointCloud2, f'{topic_prefix}/front/points', 10)
+            topics_advertised.append(f'{topic_prefix}/front/points[PointCloud2]')
+
+        self._last_error_ns = {name: 0 for name in self._frame_ids}
 
         node.get_logger().info(
             f'[{vehicle_name}] Range publishers: {topics_advertised} @ {publish_rate:.1f}Hz'
@@ -97,7 +122,7 @@ class RangePublisher:
         )
 
     def _probe_sensors_once(self):
-        for sensor_name in self._distance_sensors:
+        for sensor_name in self._frame_ids:
             try:
                 self._client.getDistanceSensorData(sensor_name, self._vehicle_name)
             except Exception as e:
@@ -108,22 +133,32 @@ class RangePublisher:
 
     def _publish_callback(self):
         stamp = self._node.get_clock().now().to_msg()
-        for sensor_name in self._distance_sensors:
+        for sensor_name in self._frame_ids:
             try:
                 data = self._client.getDistanceSensorData(sensor_name, self._vehicle_name)
                 if data is None:
                     continue
 
-                msg = Range()
-                msg.header = Header()
-                msg.header.stamp = stamp
-                msg.header.frame_id = self._frame_ids[sensor_name]
-                msg.radiation_type = Range.INFRARED
-                msg.field_of_view = float(self._field_of_view)
-                msg.min_range = float(getattr(data, 'min_distance', 0.2))
-                msg.max_range = float(getattr(data, 'max_distance', 40.0))
-                msg.range = float(getattr(data, 'distance', msg.max_range))
-                self._publishers[sensor_name].publish(msg)
+                dmin = float(getattr(data, 'min_distance', 0.2))
+                dmax = float(getattr(data, 'max_distance', 40.0))
+                dist = float(getattr(data, 'distance', dmax))
+                frame_id = self._frame_ids[sensor_name]
+                is_front = TOPIC_SUFFIX.get(sensor_name, sensor_name.lower()) == 'front'
+
+                if sensor_name in self._range_pubs:
+                    msg = Range()
+                    msg.header = Header(stamp=stamp, frame_id=frame_id)
+                    msg.radiation_type = Range.INFRARED
+                    msg.field_of_view = float(self._field_of_view)
+                    msg.min_range = dmin
+                    msg.max_range = dmax
+                    msg.range = dist
+                    self._range_pubs[sensor_name].publish(msg)
+
+                if is_front and self._scan_pub is not None:
+                    self._scan_pub.publish(self._build_scan(dmin, dmax, dist, frame_id, stamp))
+                if is_front and self._points_pub is not None:
+                    self._points_pub.publish(self._build_points(dist, frame_id, stamp))
 
             except Exception as e:
                 now_ns = self._node.get_clock().now().nanoseconds
@@ -132,3 +167,36 @@ class RangePublisher:
                         f'[{self._vehicle_name}] Range sensor {sensor_name} error: {e}'
                     )
                     self._last_error_ns[sensor_name] = now_ns
+
+    def _build_scan(self, dmin: float, dmax: float, dist: float, frame_id: str, stamp) -> LaserScan:
+        """전방 단일 빔 LaserScan (angle 0)."""
+        msg = LaserScan()
+        msg.header = Header(stamp=stamp, frame_id=frame_id)
+        msg.angle_min = 0.0
+        msg.angle_max = 0.0
+        msg.angle_increment = 0.0
+        msg.time_increment = 0.0
+        msg.scan_time = float(self._scan_time)
+        msg.range_min = dmin
+        msg.range_max = dmax
+        msg.ranges = [dist]
+        msg.intensities = []
+        return msg
+
+    def _build_points(self, dist: float, frame_id: str, stamp) -> PointCloud2:
+        """전방 거리 → 단일 점 PointCloud2 (센서 프레임 forward = +x)."""
+        msg = PointCloud2()
+        msg.header = Header(stamp=stamp, frame_id=frame_id)
+        msg.height = 1
+        msg.width = 1
+        msg.fields = [
+            PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+            PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+            PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+        ]
+        msg.is_bigendian = False
+        msg.point_step = 12
+        msg.row_step = 12
+        msg.data = struct.pack('<fff', float(dist), 0.0, 0.0)
+        msg.is_dense = True
+        return msg

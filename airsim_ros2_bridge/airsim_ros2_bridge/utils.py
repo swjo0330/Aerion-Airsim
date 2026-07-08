@@ -54,10 +54,11 @@ def airsim_rgb_to_image_msg(
     height: int,
     frame_id: str,
     stamp: Time,
+    channel_order: str = 'rgb',
 ) -> Image:
     """Convert raw AirSim image bytes to sensor_msgs/Image.
 
-    AirSim may return RGB(3ch) or RGBA(4ch) depending on UE version.
+    AirSim may return RGB/RGBA or BGR/BGRA depending on UE/AirSim fork.
     Always output rgb8 for the /camera/image topic.
     """
     msg = Image()
@@ -73,5 +74,7 @@ def airsim_rgb_to_image_msg(
     channels = len(image_data) // (height * width)
     raw = np.frombuffer(image_data, dtype=np.uint8).reshape(height, width, channels)
     rgb = raw[:, :, :3]
+    if channel_order.lower() in ('bgr', 'bgra'):
+        rgb = rgb[:, :, ::-1]
     msg.data = rgb.tobytes()
     return msg

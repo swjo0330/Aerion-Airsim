@@ -55,6 +55,9 @@ class DroneController:
         home_longitude: float = 126.9780,
         home_altitude: float = 0.0,
         mavros_instance_namespace: str | None = None,
+        pose_publish_rate: float = 10.0,
+        topic_namespace: str | None = None,
+        publish_mavros_state: bool = False,
     ):
         self._node = node
         self._client = client
@@ -70,6 +73,11 @@ class DroneController:
         self._home_longitude = home_longitude
         self._home_altitude = home_altitude
         self._mavros_instance_namespace = mavros_instance_namespace
+        # pose 폴링 주기(Hz, 기본 10=원래 동작). RPC 부하 소폭 조절용. 카메라 fps 병목은 RPC라 fps엔 영향 없음(2026-06-18 실측). 목표 구조선 /mavros/*는 Mac MAVROS 제공.
+        self._pose_publish_rate = max(float(pose_publish_rate), 0.5)
+        # publish_mavros_state: px4_mavros에서도 AirSim RPC→/mavros/* 상태 발행(MAVROS처럼). 제어 서비스는 미포함(PX4가 제어).
+        self._publish_mavros_state = bool(publish_mavros_state)
+        _emit_state = (self._control_backend == 'airsim_direct') or self._publish_mavros_state
         self._velocity_command_count = 0
         self._last_velocity_enu = (0.0, 0.0, 0.0)
         self._kinematic_noop_count = 0
@@ -85,7 +93,9 @@ class DroneController:
             durability=DurabilityPolicy.VOLATILE,
         )
 
-        topic_prefix = f'/{vehicle_name}'
+        # topic_namespace: None=vehicle_name(레거시), ''=bare(/mavros/*, /cmd_*), 그외=해당 ns. 단일드론 PoC는 bare.
+        _topic_ns = vehicle_name if topic_namespace is None else topic_namespace
+        topic_prefix = f'/{_topic_ns}' if _topic_ns else ''
         mavros_prefix = f'{topic_prefix}/mavros'
 
         if self._control_backend == 'airsim_direct' or self._local_motion_from_mavros:
@@ -203,12 +213,12 @@ class DroneController:
         )
         self._state_pub = (
             node.create_publisher(State, f'{mavros_prefix}/state', 10)
-            if State is not None and self._control_backend == 'airsim_direct'
+            if State is not None and _emit_state
             else None
         )
         self._extended_state_pub = (
             node.create_publisher(ExtendedState, f'{mavros_prefix}/extended_state', 10)
-            if ExtendedState is not None and self._control_backend == 'airsim_direct'
+            if ExtendedState is not None and _emit_state
             else None
         )
         self._mavros_services = (
@@ -479,7 +489,7 @@ class DroneController:
             self._mavros_alias_services = None
 
         self._pose_warn_count = 0
-        self._pose_timer = node.create_timer(0.1, self._publish_local_pose)
+        self._pose_timer = node.create_timer(1.0 / self._pose_publish_rate, self._publish_local_pose)
 
         node.get_logger().info(
             f'[{vehicle_name}] Controller listening on {topic_prefix}/cmd_* and {mavros_prefix}/setpoint_*'
@@ -1060,7 +1070,7 @@ class DroneController:
             compass_hdg_msg = Float64()
             compass_hdg_msg.data = self._yaw_degrees_from_quaternion(msg.pose.orientation)
 
-            if self._control_backend == 'airsim_direct':
+            if self._control_backend == 'airsim_direct' or self._publish_mavros_state:
                 self._local_pose_pub.publish(msg)
                 self._local_odom_pub.publish(odom_msg)
                 self._local_pose_cov_pub.publish(pose_cov_msg)
