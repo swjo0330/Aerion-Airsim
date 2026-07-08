@@ -29,8 +29,35 @@ UE_PROJECT="${1:-${UE_PROJECT:-$UE_PROJECT_DEFAULT}}"
 UE_PROJECT="$(readlink -f "$UE_PROJECT")"
 UE_PROJECT_DIR="$(dirname "$UE_PROJECT")"
 UE_MAP="${UE_MAP:-}"
+UE_QUALITY_LEVEL="${UE_QUALITY_LEVEL:-}"
+UE_RENDER_PROFILE="${UE_RENDER_PROFILE:-default}"
 DDC_PATH="${DDC_PATH:-$HOME/workspace/cache/ue_ddc}"
 LOG_DIR="${LOG_DIR:-$HOME/workspace/logs/ue}"
+UE_EXTRA_ARGS="${UE_EXTRA_ARGS:-}"
+
+case "$UE_RENDER_PROFILE" in
+    default)
+        UE_QUALITY_LEVEL="${UE_QUALITY_LEVEL:-Epic}"
+        UE_RENDER_ARGS=()
+        ;;
+    town10_stable)
+        UE_QUALITY_LEVEL="${UE_QUALITY_LEVEL:-High}"
+        UE_RENDER_ARGS=(
+            -vulkan
+            -NoVerifyGC
+            -ini:Engine:[/Script/Engine.RendererSettings]:r.TextureStreaming=True
+            -ini:Engine:[/Script/Engine.RendererSettings]:r.Streaming.PoolSize=3000
+            -ini:Engine:[/Script/Engine.RendererSettings]:r.Streaming.MaxTempMemoryAllowed=128
+            -ini:Engine:[/Script/Engine.RendererSettings]:r.VT.PoolSizeScale=0.75
+            "-ExecCmds=r.Streaming.PoolSize 3000;r.Streaming.MaxTempMemoryAllowed 128;r.VT.PoolSizeScale 0.75"
+        )
+        ;;
+    *)
+        echo "ERROR: unknown UE_RENDER_PROFILE: $UE_RENDER_PROFILE" >&2
+        echo "       supported: default, town10_stable" >&2
+        exit 1
+        ;;
+esac
 
 # ---------- 사전 점검 ----------
 [ -x "$UE_BIN" ]      || { echo "ERROR: UE Editor 바이너리 없음: $UE_BIN" >&2; exit 1; }
@@ -58,6 +85,11 @@ if [ -n "$UE_MAP" ]; then
     echo "  Map:       $UE_MAP"
 fi
 echo "  DDC cache: $DDC_PATH"
+echo "  Quality:   $UE_QUALITY_LEVEL"
+echo "  Render:    $UE_RENDER_PROFILE"
+if [ -n "$UE_EXTRA_ARGS" ]; then
+    echo "  ExtraArgs: $UE_EXTRA_ARGS"
+fi
 echo "  Log:       $LOG"
 echo "============================================"
 echo ""
@@ -72,10 +104,12 @@ export UE_SHAREDDATACACHE_PATH="$DDC_PATH"
 
 cd "$UE_PROJECT_DIR"
 if [ -n "$UE_MAP" ]; then
-    setsid "$UE_BIN" "$UE_PROJECT" "$UE_MAP" -log \
+    setsid "$UE_BIN" "$UE_PROJECT" "$UE_MAP" -log -quality-level="$UE_QUALITY_LEVEL" \
+        "${UE_RENDER_ARGS[@]}" $UE_EXTRA_ARGS \
         > "$LOG" 2>&1 < /dev/null &
 else
-    setsid "$UE_BIN" "$UE_PROJECT" -log \
+    setsid "$UE_BIN" "$UE_PROJECT" -log -quality-level="$UE_QUALITY_LEVEL" \
+        "${UE_RENDER_ARGS[@]}" $UE_EXTRA_ARGS \
         > "$LOG" 2>&1 < /dev/null &
 fi
 UE_PID=$!

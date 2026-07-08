@@ -31,6 +31,9 @@ setup(
             'aerion_formation_demo = airsim_ros2_bridge.formation_demo:main',
             # AERION PX4/MAVROS: keyboard velocity teleop for lag validation.
             'aerion_manual_mavros_control = airsim_ros2_bridge.manual_mavros_control:main',
+            # AERION PX4/APM: recorded GPS route -> MAVROS mission upload/start.
+            'aerion_gps_route_mission = airsim_ros2_bridge.gps_route_mission:main',
+            'aerion_mission_builder = airsim_ros2_bridge.mission_builder:main',
         ],
     },
 )

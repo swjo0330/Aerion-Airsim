@@ -46,8 +46,8 @@ fi
 for ((i = 0; i < DRONE_COUNT; i++)); do
     px4_instance="${instance_ids[$i]}"
     tcp_port=$((4560 + px4_instance))
-    mavros_bind_port=$((14540 + px4_instance))
-    px4_remote_port=$((14580 + px4_instance))
+    mavros_bind_port=$((14550 + px4_instance))
+    px4_remote_port=$((18570 + px4_instance))
     system_id=$((px4_instance + 1))
     log_path="/tmp/px4_sitl_${px4_instance}.log"
 

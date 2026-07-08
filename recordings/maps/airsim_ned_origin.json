@@ -1,0 +1,16 @@
+{
+  "schema": "aerion_airsim_ned_origin_v1",
+  "source_log": "/home/clrobur/workspace/logs/ue/ue_20260707_221418.log",
+  "origin_ue": {
+    "x": -17219.658203,
+    "y": 18385.912109,
+    "z": 2763.805176
+  },
+  "origin_meters": {
+    "x": -172.19658203,
+    "y": 183.85912109,
+    "z": 27.63805176
+  },
+  "world_to_meters": 100.0,
+  "note": "AirSim Vehicles.X/Y/Z are global NED meters relative to origin_meters."
+}

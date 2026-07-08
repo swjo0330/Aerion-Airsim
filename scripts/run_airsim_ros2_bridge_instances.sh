@@ -43,6 +43,14 @@ for vehicle_name in $VEHICLES; do
     NODE_NAME="airsim_bridge_${vehicle_name}" \
     ENABLE_CAMERA="$enable_camera" \
     ENABLE_RANGE="${ENABLE_RANGE:-true}" \
+    AIRSIM_IMAGE_CHANNEL_ORDER="${AIRSIM_IMAGE_CHANNEL_ORDER:-bgr}" \
+    ENABLE_LIDAR="${ENABLE_LIDAR:-false}" \
+    LIDAR_NAME="${LIDAR_NAME:-Lidar_Front}" \
+    LIDAR_PUBLISH_RATE="${LIDAR_PUBLISH_RATE:-10.0}" \
+    ENABLE_LIDAR_OBSTACLE="${ENABLE_LIDAR_OBSTACLE:-true}" \
+    ENABLE_GPS_DEBUG_LOG="${ENABLE_GPS_DEBUG_LOG:-false}" \
+    GPS_DEBUG_LOG_RATE="${GPS_DEBUG_LOG_RATE:-2.0}" \
+    GPS_DEBUG_SENSOR_NAME="${GPS_DEBUG_SENSOR_NAME:-Gps}" \
     "$SCRIPT_DIR/run_airsim_ros2_bridge.sh" &
     PIDS="$PIDS $!"
     index=$((index + 1))

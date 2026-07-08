@@ -1,0 +1,149 @@
+{
+  "_comment": "AERION CARLA/AirSim single PX4 drone with camera, 3 range sensors, and forward LiDAR.",
+  "_comment2": "LiDAR publishes /drone1/lidar/points; bridge can also forward nearest forward obstacle to /drone1/mavros/obstacle_distance_3d/send.",
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "ClockType": "SteppableClock",
+  "ViewMode": "SpringArmChase",
+  "OriginGeopoint": {
+    "Latitude": 37.5665,
+    "Longitude": 126.978,
+    "Altitude": 38
+  },
+  "SubWindows": [
+    {
+      "WindowID": 0,
+      "CameraName": "front_center",
+      "ImageType": 0,
+      "VehicleName": "drone1",
+      "Visible": true
+    }
+  ],
+  "Vehicles": {
+    "drone1": {
+      "VehicleType": "PX4Multirotor",
+      "X": 0.0,
+      "Y": 0.0,
+      "Z": 0.0,
+      "Yaw": 0,
+      "UseSerial": false,
+      "LockStep": true,
+      "UseTcp": true,
+      "TcpPort": 4560,
+      "LocalHostIp": "127.0.0.1",
+      "Sensors": {
+        "Distance_Front": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0.3,
+          "Y": 0,
+          "Z": 0,
+          "Yaw": 0,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 40,
+          "DrawDebugPoints": false
+        },
+        "Distance_Left": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": -0.3,
+          "Z": 0,
+          "Yaw": -90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
+        "Distance_Right": {
+          "SensorType": 5,
+          "Enabled": true,
+          "X": 0,
+          "Y": 0.3,
+          "Z": 0,
+          "Yaw": 90,
+          "Pitch": 0,
+          "Roll": 0,
+          "MinDistance": 0.2,
+          "MaxDistance": 20,
+          "DrawDebugPoints": false
+        },
+        "Lidar_Front": {
+          "SensorType": 6,
+          "Enabled": true,
+          "X": 0.2,
+          "Y": 0,
+          "Z": -0.1,
+          "Roll": 0,
+          "Pitch": 0,
+          "Yaw": 0,
+          "NumberOfChannels": 16,
+          "PointsPerSecond": 100000,
+          "RotationsPerSecond": 10,
+          "HorizontalFOVStart": -45,
+          "HorizontalFOVEnd": 45,
+          "VerticalFOVUpper": 10,
+          "VerticalFOVLower": -30,
+          "Range": 50,
+          "DrawDebugPoints": false,
+          "DataFrame": "SensorLocalFrame"
+        },
+        "Imu": {
+          "SensorType": 2,
+          "Enabled": true
+        },
+        "Magnetometer": {
+          "SensorType": 4,
+          "Enabled": true
+        },
+        "Barometer": {
+          "SensorType": 1,
+          "Enabled": true
+        },
+        "Gps": {
+          "SensorType": 3,
+          "Enabled": true
+        }
+      },
+      "Parameters": {
+        "NAV_RCL_ACT": 0,
+        "NAV_DLL_ACT": 0,
+        "COM_ARM_WO_GPS": 2,
+        "EKF2_HGT_REF": 1,
+        "CBRK_USB_CHK": 197848,
+        "CBRK_IO_SAFETY": 22027,
+        "CBRK_SUPPLY_CHK": 894281,
+        "EKF2_MAG_TYPE": 0,
+        "EKF2_MAG_CHECK": 0,
+        "COM_ARM_MAG_ANG": -1,
+        "COM_ARM_MAG_STR": 0,
+        "COM_PREARM_MODE": 0,
+        "COM_DISARM_PRFLT": -1.0,
+        "COM_DISARM_LAND": -1.0,
+        "COM_OF_LOSS_T": 5.0
+      },
+      "Cameras": {
+        "front_center": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1280,
+              "Height": 720,
+              "FOV_Degrees": 78,
+              "MotionBlurAmount": 0
+            }
+          ],
+          "X": 0.25,
+          "Y": 0,
+          "Z": -0.18
+        }
+      },
+      "ControlIp": "127.0.0.1",
+      "ControlPortLocal": 14540,
+      "ControlPortRemote": 14580
+    }
+  }
+}

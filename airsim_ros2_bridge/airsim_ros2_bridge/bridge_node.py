@@ -38,6 +38,7 @@ import threading
 # AERION 토픽 발행자 3종 (단일 책임 원칙 — docs/ARCHITECTURE.md 참조)
 from airsim_ros2_bridge.camera_publisher import CameraPublisher
 from airsim_ros2_bridge.drone_controller import DroneController
+from airsim_ros2_bridge.lidar_publisher import LidarPublisher
 from airsim_ros2_bridge.range_publisher import RangePublisher
 
 
@@ -76,11 +77,26 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('vehicle_names', ['Drone0', 'Drone1'])
         self.declare_parameter('camera_name', 'front_center')
         self.declare_parameter('camera_fps', 30.0)
+        self.declare_parameter('airsim_image_channel_order', 'bgr')
+        self.declare_parameter('image_compressed', False)
+        self.declare_parameter('jpeg_quality', 70)
+        # topic_namespace: '__vehicle__'(기본)=/{vehicle_name}/* 레거시, ''/'bare'=bare(/camera/image 등 단일드론 PoC), 그외=해당 ns
+        self.declare_parameter('topic_namespace', '__vehicle__')
         self.declare_parameter('enable_camera', False)
         self.declare_parameter('enable_range', False)
         self.declare_parameter('range_sensors', ['Distance_Front', 'Distance_Left', 'Distance_Right'])
         self.declare_parameter('range_publish_rate', 20.0)
         self.declare_parameter('range_field_of_view_rad', 0.035)
+        # range_mode: 'range'(레거시 Range) | 'laserscan'(/range/front LaserScan) | 'points'(/range/front/points PointCloud2, 체화지능 3D) | 'both'
+        self.declare_parameter('range_mode', 'range')
+        self.declare_parameter('enable_lidar', False)
+        self.declare_parameter('lidar_name', 'Lidar_Front')
+        self.declare_parameter('lidar_publish_rate', 10.0)
+        self.declare_parameter('enable_lidar_obstacle', True)
+        self.declare_parameter('lidar_obstacle_min_distance', 0.3)
+        self.declare_parameter('lidar_obstacle_max_distance', 25.0)
+        self.declare_parameter('lidar_obstacle_forward_fov_deg', 90.0)
+        self.declare_parameter('lidar_obstacle_vertical_fov_deg', 45.0)
         # enable_ardu_compat: ArduPilot DDS 토픽(/ap/*) 호환 alias 발행 여부.
         # AERION Phase 2~5는 모두 SimpleFlight/PX4 기반이라 false 유지. Phase 7(별도 트랙) ArduPilot 통합 시에만 true.
         self.declare_parameter('enable_ardu_compat', False)
@@ -88,6 +104,9 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('ardu_compat_vehicle', 'drone1')
         self.declare_parameter('velocity_control_mode', 'kinematic')
         self.declare_parameter('control_backend', 'px4_mavros')
+        self.declare_parameter('controller_pose_rate', 10.0)
+        # publish_mavros_state: px4_mavros에서도 AirSim RPC→/mavros/* 상태 발행(MAVROS처럼). 제어 서비스는 미포함.
+        self.declare_parameter('publish_mavros_state', False)
         self.declare_parameter('velocity_command_duration', 0.2)
         self.declare_parameter('kinematic_z_ned', -1.0)
         self.declare_parameter('forward_ap_cmd_vel_to_mavros', False)
@@ -98,6 +117,9 @@ class AirSimBridgeNode(Node):
         self.declare_parameter('home_latitude', 37.5665)
         self.declare_parameter('home_longitude', 126.9780)
         self.declare_parameter('home_altitude', 0.0)
+        self.declare_parameter('enable_gps_debug_log', False)
+        self.declare_parameter('gps_debug_log_rate', 2.0)
+        self.declare_parameter('gps_debug_sensor_name', '')
 
         vehicle_name = self.get_parameter('vehicle_name').get_parameter_value().string_value
         vehicle_index = self.get_parameter('vehicle_index').get_parameter_value().integer_value
@@ -107,15 +129,46 @@ class AirSimBridgeNode(Node):
         vehicle_names = self.get_parameter('vehicle_names').get_parameter_value().string_array_value
         camera_name = self.get_parameter('camera_name').get_parameter_value().string_value
         camera_fps = self.get_parameter('camera_fps').get_parameter_value().double_value
+        airsim_image_channel_order = (
+            self.get_parameter('airsim_image_channel_order').get_parameter_value().string_value
+        )
+        image_compressed = self.get_parameter('image_compressed').get_parameter_value().bool_value
+        jpeg_quality = self.get_parameter('jpeg_quality').get_parameter_value().integer_value
+        topic_namespace_raw = self.get_parameter('topic_namespace').get_parameter_value().string_value
+        if topic_namespace_raw == '__vehicle__':
+            topic_ns = None          # 레거시: /{vehicle_name}/*
+        elif topic_namespace_raw in ('', 'bare', '/'):
+            topic_ns = ''            # bare: /camera/image, /mavros/* ...
+        else:
+            topic_ns = topic_namespace_raw
         enable_camera = self.get_parameter('enable_camera').get_parameter_value().bool_value
         enable_range = self.get_parameter('enable_range').get_parameter_value().bool_value
         range_sensors = self.get_parameter('range_sensors').get_parameter_value().string_array_value
         range_publish_rate = self.get_parameter('range_publish_rate').get_parameter_value().double_value
         range_field_of_view_rad = self.get_parameter('range_field_of_view_rad').get_parameter_value().double_value
+        range_mode = self.get_parameter('range_mode').get_parameter_value().string_value
+        enable_lidar = self.get_parameter('enable_lidar').get_parameter_value().bool_value
+        lidar_name = self.get_parameter('lidar_name').get_parameter_value().string_value
+        lidar_publish_rate = self.get_parameter('lidar_publish_rate').get_parameter_value().double_value
+        enable_lidar_obstacle = self.get_parameter('enable_lidar_obstacle').get_parameter_value().bool_value
+        lidar_obstacle_min_distance = (
+            self.get_parameter('lidar_obstacle_min_distance').get_parameter_value().double_value
+        )
+        lidar_obstacle_max_distance = (
+            self.get_parameter('lidar_obstacle_max_distance').get_parameter_value().double_value
+        )
+        lidar_obstacle_forward_fov_deg = (
+            self.get_parameter('lidar_obstacle_forward_fov_deg').get_parameter_value().double_value
+        )
+        lidar_obstacle_vertical_fov_deg = (
+            self.get_parameter('lidar_obstacle_vertical_fov_deg').get_parameter_value().double_value
+        )
         enable_ardu_compat = self.get_parameter('enable_ardu_compat').get_parameter_value().bool_value
         ardu_compat_vehicle = self.get_parameter('ardu_compat_vehicle').get_parameter_value().string_value
         velocity_control_mode = self.get_parameter('velocity_control_mode').get_parameter_value().string_value
         control_backend = self.get_parameter('control_backend').get_parameter_value().string_value
+        controller_pose_rate = self.get_parameter('controller_pose_rate').get_parameter_value().double_value
+        publish_mavros_state = self.get_parameter('publish_mavros_state').get_parameter_value().bool_value
         velocity_command_duration = (
             self.get_parameter('velocity_command_duration').get_parameter_value().double_value
         )
@@ -132,6 +185,11 @@ class AirSimBridgeNode(Node):
         home_latitude = self.get_parameter('home_latitude').get_parameter_value().double_value
         home_longitude = self.get_parameter('home_longitude').get_parameter_value().double_value
         home_altitude = self.get_parameter('home_altitude').get_parameter_value().double_value
+        enable_gps_debug_log = self.get_parameter('enable_gps_debug_log').get_parameter_value().bool_value
+        gps_debug_log_rate = self.get_parameter('gps_debug_log_rate').get_parameter_value().double_value
+        gps_debug_sensor_name = (
+            self.get_parameter('gps_debug_sensor_name').get_parameter_value().string_value
+        )
 
         # Connect to AirSim
         self.get_logger().info(f'Connecting to AirSim at {airsim_ip}:{airsim_port}...')
@@ -153,8 +211,11 @@ class AirSimBridgeNode(Node):
 
         # Create camera publishers and controllers for each vehicle
         self._camera_publishers = []
+        self._lidar_publishers = []
         self._range_publishers = []
         self._drone_controllers = []
+        self._gps_debug_vehicle_names = []
+        self._gps_debug_sensor_name = gps_debug_sensor_name
 
         for spec in vehicle_specs:
             vehicle_name = spec['vehicle_name']
@@ -168,6 +229,10 @@ class AirSimBridgeNode(Node):
                         vehicle_name=vehicle_name,
                         camera_name=camera_name,
                         publish_rate=camera_fps,
+                        image_channel_order=airsim_image_channel_order,
+                        publish_compressed=image_compressed,
+                        jpeg_quality=jpeg_quality,
+                        topic_namespace=topic_ns,
                     )
                     self._camera_publishers.append(cam_pub)
                 except Exception as e:
@@ -187,11 +252,34 @@ class AirSimBridgeNode(Node):
                         distance_sensors=list(range_sensors),
                         publish_rate=range_publish_rate,
                         field_of_view_rad=range_field_of_view_rad,
+                        topic_namespace=topic_ns,
+                        range_mode=range_mode,
                     )
                     self._range_publishers.append(rng_pub)
                 except Exception as e:
                     self.get_logger().warn(
                         f'[{vehicle_name}] Range publisher disabled after initialization error: {e}'
+                    )
+
+            if enable_lidar:
+                try:
+                    lidar_pub = LidarPublisher(
+                        node=self,
+                        client=self._client,
+                        vehicle_name=vehicle_name,
+                        lidar_name=lidar_name,
+                        publish_rate=lidar_publish_rate,
+                        enable_obstacle=enable_lidar_obstacle,
+                        min_distance=lidar_obstacle_min_distance,
+                        max_distance=lidar_obstacle_max_distance,
+                        obstacle_forward_fov_deg=lidar_obstacle_forward_fov_deg,
+                        obstacle_vertical_fov_deg=lidar_obstacle_vertical_fov_deg,
+                        topic_namespace=topic_ns,
+                    )
+                    self._lidar_publishers.append(lidar_pub)
+                except Exception as e:
+                    self.get_logger().warn(
+                        f'[{vehicle_name}] LiDAR publisher disabled after initialization error: {e}'
                     )
 
             controller = DroneController(
@@ -208,11 +296,23 @@ class AirSimBridgeNode(Node):
                 home_latitude=home_latitude,
                 home_longitude=home_longitude,
                 home_altitude=home_altitude,
-                mavros_instance_namespace=spec['mavros_instance_namespace'],
+                mavros_instance_namespace=('mavros' if topic_ns == '' else spec['mavros_instance_namespace']),
+                pose_publish_rate=controller_pose_rate,
+                topic_namespace=topic_ns,
+                publish_mavros_state=publish_mavros_state,
             )
             self._drone_controllers.append(controller)
+            self._gps_debug_vehicle_names.append(vehicle_name)
 
         self.get_logger().info(f'Bridge running for {len(vehicle_specs)} vehicle instance(s)')
+
+        self._gps_debug_timer = None
+        if enable_gps_debug_log and self._gps_debug_vehicle_names:
+            rate = max(0.2, gps_debug_log_rate)
+            self._gps_debug_timer = self.create_timer(1.0 / rate, self._publish_gps_debug_log)
+            self.get_logger().info(
+                f'AirSim GPS debug log enabled for {self._gps_debug_vehicle_names} @ {rate:.1f}Hz'
+            )
 
     @staticmethod
     def _resolve_vehicle_specs(
@@ -247,6 +347,17 @@ class AirSimBridgeNode(Node):
                 break
             digits = char + digits
         return int(digits) if digits else 0
+
+    def _publish_gps_debug_log(self) -> None:
+        for vehicle_name in self._gps_debug_vehicle_names:
+            try:
+                gps_data = self._client.getGpsData(self._gps_debug_sensor_name, vehicle_name)
+                geo = gps_data.gnss.geo_point
+                message = f'GPS {vehicle_name}'
+                value = f'lat={geo.latitude:.7f} lon={geo.longitude:.7f} alt={geo.altitude:.2f}m'
+                self._client.simPrintLogMessage(message, value, 0)
+            except Exception as exc:
+                self.get_logger().warn(f'[{vehicle_name}] GPS debug log update failed: {exc}')
 
 
 def main(args=None):

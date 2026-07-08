@@ -4,8 +4,9 @@
 # Flow:
 #   1. Deploy PX4 3-drone AirSim settings.
 #   2. Wait for UE/CARLA Play.
-#   3. Launch PX4 SITL x3, MAVROS x3, bridge x3.
-#   4. Print PX4 manual-control preparation and 3-drone teleop commands.
+#   3. Optionally launch CARLA stock dynamic traffic.
+#   4. Launch PX4 SITL x3, MAVROS x3, bridge x3.
+#   5. Print PX4 manual-control preparation and 3-drone teleop commands.
 set -euo pipefail
 
 WORKSPACE="${WORKSPACE:-$HOME/workspace/projects/aerion-airsim}"
@@ -20,6 +21,10 @@ AIRSIM_IP="${AIRSIM_IP:-127.0.0.1}"
 AIRSIM_PORT="${AIRSIM_PORT:-41451}"
 DRONE_COUNT="${DRONE_COUNT:-3}"
 LOG_DIR="${LOG_DIR:-/tmp/aerion_carla_px4_manual}"
+ENABLE_CARLA_TRAFFIC="${ENABLE_CARLA_TRAFFIC:-true}"
+CARLA_TRAFFIC_VEHICLES="${CARLA_TRAFFIC_VEHICLES:-12}"
+CARLA_TRAFFIC_WALKERS="${CARLA_TRAFFIC_WALKERS:-8}"
+CARLA_TRAFFIC_SEED="${CARLA_TRAFFIC_SEED:-42}"
 SPAWN_OFFSET_X="${SPAWN_OFFSET_X:-0.0}"
 SPAWN_OFFSET_Y="${SPAWN_OFFSET_Y:-0.0}"
 SPAWN_OFFSET_Z="${SPAWN_OFFSET_Z:-0.0}"
@@ -50,6 +55,7 @@ trap cleanup INT TERM EXIT
 [ -f "$WORKSPACE/scripts/launch_px4_instances.sh" ] || die "missing PX4 launcher"
 [ -f "$WORKSPACE/scripts/launch_mavros_px4_instances.sh" ] || die "missing MAVROS launcher"
 [ -f "$WORKSPACE/scripts/run_airsim_ros2_bridge_instances.sh" ] || die "missing bridge launcher"
+[ -f "$WORKSPACE/scripts/run_carla_example_traffic.sh" ] || die "missing CARLA traffic launcher"
 
 mkdir -p "$LOG_DIR" "$(dirname "$SETTINGS_DST")"
 
@@ -101,19 +107,31 @@ log "[2/5] Start CARLA+AirSim UE Play"
 echo "  Confirm drone1/drone2/drone3 are spawned, then press Enter."
 read -r -p "  ready: " _ || true
 
-log "[3/5] Launch PX4 SITL x3"
+if [[ "$ENABLE_CARLA_TRAFFIC" == "1" || "$ENABLE_CARLA_TRAFFIC" == "true" ]]; then
+    log "[3/6] Launch CARLA stock dynamic traffic"
+    CARLA_TRAFFIC_VEHICLES="$CARLA_TRAFFIC_VEHICLES" \
+    CARLA_TRAFFIC_WALKERS="$CARLA_TRAFFIC_WALKERS" \
+    CARLA_TRAFFIC_SEED="$CARLA_TRAFFIC_SEED" \
+        "$WORKSPACE/scripts/run_carla_example_traffic.sh" >"$LOG_DIR/carla_traffic.log" 2>&1 &
+    PIDS="$PIDS $!"
+    sleep 4
+else
+    log "[3/6] Skip CARLA traffic"
+fi
+
+log "[4/6] Launch PX4 SITL x3"
 PX4_DIR="$PX4_DIR" DRONE_COUNT=3 BACKGROUND_MODE=false \
     "$WORKSPACE/scripts/launch_px4_instances.sh" >"$LOG_DIR/px4.log" 2>&1 &
 PIDS="$PIDS $!"
 sleep 8
 
-log "[4/5] Launch MAVROS x3"
+log "[5/6] Launch MAVROS x3"
 DRONE_COUNT=3 MAVROS_NAMESPACE_STYLE=drone \
     "$WORKSPACE/scripts/launch_mavros_px4_instances.sh" >"$LOG_DIR/mavros.log" 2>&1 &
 PIDS="$PIDS $!"
 sleep 8
 
-log "[5/5] Launch AirSim ROS2 bridge x3"
+log "[6/6] Launch AirSim ROS2 bridge x3"
 ROS_WS="$ROS_WS" AIRSIM_IP="$AIRSIM_IP" AIRSIM_PORT="$AIRSIM_PORT" \
 DRONE_COUNT=3 MASTER_VEHICLE=drone1 ENABLE_RANGE=true \
     "$WORKSPACE/scripts/run_airsim_ros2_bridge_instances.sh" >"$LOG_DIR/bridge.log" 2>&1 &
@@ -122,6 +140,7 @@ PIDS="$PIDS $!"
 cat <<EOF
 
 Logs:
+  CARLA traffic: $LOG_DIR/carla_traffic.log
   PX4:    $LOG_DIR/px4.log
   MAVROS: $LOG_DIR/mavros.log
   bridge: $LOG_DIR/bridge.log

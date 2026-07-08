@@ -61,11 +61,16 @@ for ((i = 1; i <= DRONE_COUNT; i++)); do
     namespace="${vehicle}/mavros"
     echo "Preparing ${vehicle} PX4 params..."
 
-    set_int_param "$namespace" COM_ARM_WO_GPS 1
+    set_int_param "$namespace" COM_ARM_WO_GPS 2
     set_int_param "$namespace" CBRK_SUPPLY_CHK 894281
     set_int_param "$namespace" CBRK_USB_CHK 197848
     set_int_param "$namespace" CBRK_IO_SAFETY 22027
-    set_int_param "$namespace" EKF2_MAG_TYPE 1
+    set_int_param "$namespace" EKF2_MAG_TYPE 0
+    # AirSim 시뮬 자력계 필드가 PX4 mag 강도/경사 sanity check를 통과 못 해 mag_ratio=2.0 거부
+    # → heading 미수렴 → 수평 OFFBOARD 항법 차단. CHECK 끄면 mag 수용(mag_ratio~0.01), 수평 정상.
+    set_int_param "$namespace" EKF2_MAG_CHECK 0
+    set_int_param "$namespace" COM_ARM_MAG_ANG -1
+    set_int_param "$namespace" COM_ARM_MAG_STR 0
     set_int_param "$namespace" COM_PREARM_MODE 0
     set_int_param "$namespace" NAV_RCL_ACT 0
     set_int_param "$namespace" NAV_DLL_ACT 0
@@ -75,6 +80,10 @@ for ((i = 1; i <= DRONE_COUNT; i++)); do
     set_double_param "$namespace" COM_DISARM_PRFLT -1.0
     set_double_param "$namespace" COM_DISARM_LAND -1.0
     set_double_param "$namespace" COM_OF_LOSS_T 5.0
+
+    timeout 5 ros2 service call "/${namespace}/cmd/command" mavros_msgs/srv/CommandLong \
+        "{broadcast: false, command: 42006, confirmation: 0, param1: 0.0, param2: 0.0, param3: 0.0, param4: 0.0, param5: 0.0, param6: 0.0, param7: 0.0}" \
+        >/tmp/"${namespace//\//_}_fixed_mag_cal_yaw.log" 2>&1 || true
 done
 
 echo "Streaming neutral setpoints for ${SETPOINT_WARMUP_SEC}s..."

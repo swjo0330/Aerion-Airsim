@@ -20,9 +20,10 @@
 import airsim
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
 from airsim_ros2_bridge.utils import build_camera_info, airsim_rgb_to_image_msg
+from airsim_ros2_bridge.topic_naming import sensor_topic_prefix
 
 
 class CameraPublisher:
@@ -35,18 +36,30 @@ class CameraPublisher:
         vehicle_name: str,
         camera_name: str = 'front_center',
         publish_rate: float = 30.0,
+        image_channel_order: str = 'bgr',
+        publish_compressed: bool = False,
+        jpeg_quality: int = 70,
+        topic_namespace: str | None = None,
     ):
         self._node = node
         self._client = client
         self._vehicle_name = vehicle_name
         self._camera_name = camera_name
+        self._image_channel_order = image_channel_order
+        self._publish_compressed = bool(publish_compressed)
+        self._jpeg_quality = int(jpeg_quality)
         self._camera_candidates = self._build_camera_candidates(camera_name)
         self._last_camera_error_ns = 0
         self._callback_group = ReentrantCallbackGroup()
 
-        topic_prefix = f'/{vehicle_name}/camera'
+        topic_prefix = sensor_topic_prefix(vehicle_name, 'camera', topic_namespace)
         self._image_pub = node.create_publisher(Image, f'{topic_prefix}/image', 10)
         self._info_pub = node.create_publisher(CameraInfo, f'{topic_prefix}/camera_info', 10)
+        # 압축 전송용: raw 2.76MB는 zenoh/Tailscale에서 단편 드롭되므로 JPEG로 발행.
+        self._compressed_pub = (
+            node.create_publisher(CompressedImage, f'{topic_prefix}/image/compressed', 10)
+            if self._publish_compressed else None
+        )
 
         self._frame_id = f'{vehicle_name}_{camera_name}_optical'
 
@@ -83,10 +96,18 @@ class CameraPublisher:
 
             stamp = self._node.get_clock().now().to_msg()
 
-            image_msg = airsim_rgb_to_image_msg(
-                r.image_data_uint8, r.width, r.height, self._frame_id, stamp
-            )
-            self._image_pub.publish(image_msg)
+            if self._compressed_pub is not None:
+                self._compressed_pub.publish(self._encode_jpeg(r, stamp))
+            else:
+                image_msg = airsim_rgb_to_image_msg(
+                    r.image_data_uint8,
+                    r.width,
+                    r.height,
+                    self._frame_id,
+                    stamp,
+                    self._image_channel_order,
+                )
+                self._image_pub.publish(image_msg)
 
             info_msg = build_camera_info(
                 self._fov, r.width, r.height, self._frame_id, stamp
@@ -98,6 +119,27 @@ class CameraPublisher:
             if now_ns - self._last_camera_error_ns > 5_000_000_000:
                 self._node.get_logger().warn(f'[{self._vehicle_name}] Camera error: {e}')
                 self._last_camera_error_ns = now_ns
+
+    def _encode_jpeg(self, r, stamp) -> CompressedImage:
+        """AirSim raw(BGR) → JPEG CompressedImage. cv2가 BGR을 기대하므로 채널 스왑 없이 인코딩."""
+        import numpy as np
+        import cv2
+
+        px = r.width * r.height
+        buf = np.frombuffer(r.image_data_uint8, dtype=np.uint8)
+        ch = (buf.size // px) if px else 3
+        if ch not in (3, 4):
+            ch = 3
+        img = buf[: px * ch].reshape(r.height, r.width, ch)
+        if ch == 4:
+            img = img[:, :, :3]
+        ok, enc = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), self._jpeg_quality])
+        msg = CompressedImage()
+        msg.header.stamp = stamp
+        msg.header.frame_id = self._frame_id
+        msg.format = 'jpeg'
+        msg.data = enc.tobytes() if ok else b''
+        return msg
 
     def _safe_get_camera_fov(self, client, camera_name: str, vehicle_name: str) -> float:
         try:
