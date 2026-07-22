@@ -11,6 +11,15 @@
 - Python: 3.12.13 (CPython, uv 관리) -- `.venv/` 에 설치완료 (uv 0.10.12)
 - cmake: 설치됨 (`/usr/bin/cmake`)
 - uv: 설치됨 (`/home/clrobur/.local/bin/uv`) -- Python 가상환경/패키지 관리에 활용 가능
+- PX4-Autopilot: `/home/clrobur/airsim/PX4-Autopilot` (빌드완료; ⚠️ `launch_px4_instances.sh` 기본값 `~/PX4-Autopilot`은 틀림 → `PX4_DIR=/home/clrobur/airsim/PX4-Autopilot` 지정)
+
+### 체화지능(Mac) 연동 런타임 (2026-06-17 검증)
+- **설계/현황 문서:** `docs/airsim/design/2026-06-17-sim-comm-extension-design.md` (이 작업의 권위 문서)
+- zenoh-bridge-dds: 이 PC `~/workspace/tools/zenoh-bridge-dds-v1.2.1/` (glibc2.35 prebuilt 상한). Mac=1.8.0 Router. 1.x interop OK.
+- Mac(체화지능): Tailscale `100.67.87.116`, zenoh Router listen `:7447`, NIC `en4`, ROS_DOMAIN_ID 0.
+- 이 PC: Tailscale `100.120.219.68`, NIC `enp108s0`.
+- **실행 단일 진입점:** `scripts/test_embodied_link.sh <preflight|zenoh|pub|bridge|mavproxy|verify|status|stop>`.
+- 구조: 관측=zenoh 토픽 포워드 / 제어=mavproxy MAVLink→Mac MAVROS. 제어는 절대 zenoh 미경유(one-writer).
 
 ## 구축 작업 항목
 

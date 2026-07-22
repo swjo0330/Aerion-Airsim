@@ -94,14 +94,24 @@ matches the deployed `~/Documents/AirSim/settings.json`.
 
 ## Relation To Mac Embodied Integration
 
-After this smoke passes, the same PX4 API channel can be handed to MAVProxy:
+The current PC has now been split into a named `local mission demo` topology.
+The team-lead PDF path is a separate `teamlead external MAVROS` topology. See:
 
 ```bash
-mavproxy.py --master=udpin:0.0.0.0:14540 --out=udpout:<Mac_TS_IP>:14555 --daemon
+docs/mission_demo_topologies.md
 ```
 
-Keep only one writer on the port. Stop local MAVSDK/MAVROS before running
-MAVProxy for the Mac integration path.
+After the local demo passes, stop local MAVROS and hand the PX4 MAVLink channel
+to the external MAVROS PC:
+
+```bash
+TEAMLEAD_MAVROS_IP=<remote_ip> \
+STOP_LOCAL_MAVROS=true \
+bash scripts/run_teamlead_external_mavlink_forwarder.sh
+```
+
+Keep only one mission/control writer. In the external topology, the external
+MAVROS PC is the writer; the AirSim/PX4 PC is only the forwarder.
 
 ## Current Pre-Integration Order
 

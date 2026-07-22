@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AERION: bridge_node ↔ zenoh-bridge-dds 같은 호스트(AirSim PC) DDS discovery 설정.
+  zenoh 1.x 번들 CycloneDDS는 모던 <Interfaces> 구문 사용 (0.5.0의 <NetworkInterfaceAddress>와 다름).
+  - 로컬 DDS discovery는 같은 호스트(bridge_node ↔ zenoh-bridge-dds)끼리만. Peers=127.0.0.1 + 멀티캐스트 off
+    이므로 루프백 `lo`에 바인딩한다. (2026-07-22: 유선 NIC enp108s0가 DOWN → `lo`로 전환. cross-host는
+    어차피 zenoh TCP/Tailscale이라 물리 NIC 무관. 물리 NIC로 되돌리려면 name을 `ip -br a`의 UP NIC로 교체.)
+  - 발행 노드(bridge_node)와 zenoh-bridge 둘 다 이 파일을 CYCLONEDDS_URI로 써야 localhost discovery됨.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="lo"/>
+      </Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+      <MaxMessageSize>1400B</MaxMessageSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <Peers>
+        <Peer address="localhost"/>
+        <Peer address="127.0.0.1"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
